@@ -21,6 +21,10 @@ __pycache__/
 experiments/outputs/*.log
 experiments/outputs/_pool_cache_*
 
+# Trained model artifacts (regeneratable, can be large)
+*.joblib
+*.pkl
+
 # Whitelist the small experiment outputs we DO want tracked
 !experiments/outputs/*.csv
 !experiments/outputs/*.png

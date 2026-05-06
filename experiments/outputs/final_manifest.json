@@ -1,0 +1,72 @@
+{
+  "model": "LEAN+AC (14 features) tuned XGBoost regression",
+  "params": {
+    "max_depth": 11,
+    "learning_rate": 0.05,
+    "min_child_weight": 50,
+    "subsample": 0.85,
+    "colsample_bytree": 1.0,
+    "n_estimators": 348,
+    "n_jobs": -1,
+    "tree_method": "hist",
+    "enable_categorical": true,
+    "random_state": 42
+  },
+  "features": [
+    "total_flight_distance_km",
+    "day_sin",
+    "day_cos",
+    "start_hour_sin",
+    "start_hour_cos",
+    "OriginLat",
+    "OriginLon_sin",
+    "OriginLon_cos",
+    "DestinationLat",
+    "DestinationLon_sin",
+    "DestinationLon_cos",
+    "land_score",
+    "night_score_full_0",
+    "aircraft_type_icao"
+  ],
+  "n_train": 34976278,
+  "n_test": 17488140,
+  "target": "contrail_type (signed log of contrail_CO2_km)",
+  "metrics": {
+    "n": {
+      "test_pooled": 17488140,
+      "test_2019_only": 10042713,
+      "test_2021_only": 7445427
+    },
+    "rmse": {
+      "test_pooled": 1.6357028330153893,
+      "test_2019_only": 1.6652429539752331,
+      "test_2021_only": 1.594992882285186
+    },
+    "r2": {
+      "test_pooled": 0.1488207029934785,
+      "test_2019_only": 0.16447358017379,
+      "test_2021_only": 0.12324863490956639
+    },
+    "top5_recall": {
+      "test_pooled": 0.3882402588268392,
+      "test_2019_only": 0.38798652157981106,
+      "test_2021_only": 0.3799517018516081
+    },
+    "top5_capture": {
+      "test_pooled": 0.4214781748257966,
+      "test_2019_only": 0.41250028846290004,
+      "test_2021_only": 0.42441724357166544
+    },
+    "top10_recall": {
+      "test_pooled": 0.4869986173486717,
+      "test_2019_only": 0.49396826155489904,
+      "test_2021_only": 0.4677003208679687
+    },
+    "top10_capture": {
+      "test_pooled": 0.6127658687885009,
+      "test_2019_only": 0.6062591647423748,
+      "test_2021_only": 0.6136092202391489
+    }
+  },
+  "random_seed": 42
+}
