@@ -1,0 +1,43 @@
+"""sbatch batch_filter.sh 20190111
+sbatch batch_filter.sh 20190112
+sbatch batch_filter.sh 20190113
+sbatch batch_filter.sh 20190114
+sbatch batch_filter.sh 20190115
+sbatch batch_filter.sh 20190116
+sbatch batch_filter.sh 20190117
+sbatch batch_filter.sh 20190118
+sbatch batch_filter.sh 20190119
+sbatch batch_filter.sh 20190120
+
+sbatch batch_filter.sh 20190411
+sbatch batch_filter.sh 20190412
+sbatch batch_filter.sh 20190413
+sbatch batch_filter.sh 20190414
+sbatch batch_filter.sh 20190415
+sbatch batch_filter.sh 20190416
+sbatch batch_filter.sh 20190417
+sbatch batch_filter.sh 20190418
+sbatch batch_filter.sh 20190419
+sbatch batch_filter.sh 20190420"""
+
+sbatch batch_filter.sh 20190711
+sbatch batch_filter.sh 20190712
+sbatch batch_filter.sh 20190713
+sbatch batch_filter.sh 20190714
+sbatch batch_filter.sh 20190715
+sbatch batch_filter.sh 20190716
+sbatch batch_filter.sh 20190717
+sbatch batch_filter.sh 20190718
+sbatch batch_filter.sh 20190719
+sbatch batch_filter.sh 20190710
+
+"""sbatch batch_filter.sh 20191011
+sbatch batch_filter.sh 20191012
+sbatch batch_filter.sh 20191013
+sbatch batch_filter.sh 20191014
+sbatch batch_filter.sh 20191015
+sbatch batch_filter.sh 20191016
+sbatch batch_filter.sh 20191017
+sbatch batch_filter.sh 20191018
+sbatch batch_filter.sh 20191019
+sbatch batch_filter.sh 20191020"""

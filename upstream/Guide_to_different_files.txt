@@ -1,0 +1,6 @@
+Guide to different files:
+Features.py: should always be working and run first
+hubandspoke.py: creates the trajectory and airport maps
+fig1fig2.py: creates the distribution curves
+contrail avoidance ml & contrail for fig 3
+Xavier contrail ml and cust1ml for bar plots

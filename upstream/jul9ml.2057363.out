@@ -1,0 +1,200 @@
+Loading dataset...
+Distance filter: 210 flights removed (distance < 0.1 km or = 0)
+Creating features...
+Creating time features...
+Sample of crosses_midnight column:
+          first_waypoint_time      last_waypoint_time  crosses_midnight
+8316  2019-04-30 02:28:24.218 2019-04-30 03:45:10.365                 0
+79486 2019-04-30 20:16:53.000 2019-04-30 21:57:22.000                 0
+66452 2019-04-30 17:22:31.000 2019-04-30 20:33:17.000                 0
+1383  2019-04-30 00:45:07.000 2019-04-30 03:32:42.000                 0
+76518 2019-04-30 19:00:46.012 2019-04-30 21:53:15.000                 0
+5067  2019-04-30 01:38:39.000 2019-04-30 06:12:42.000                 0
+1720  2019-04-30 00:20:27.317 2019-04-30 04:01:18.533                 0
+57520 2019-04-30 15:35:55.000 2019-04-30 16:25:17.000                 0
+31870 2019-04-30 09:48:10.000 2019-04-30 11:58:36.000                 0
+62834 2019-04-30 16:20:56.000 2019-04-30 17:52:40.000                 0
+Creating geographic features...
+Concatenating features...
+After contrail_type calculation - inf values: 0
+After contrail_type calculation - NaN values: 0
+DataFrame after features:        contrail_CO2_km  ...  contrail_type
+8316       1521.312276  ...       7.327329
+79486      1317.331685  ...       7.183364
+66452      1154.761100  ...       7.051649
+1383       1184.326446  ...       7.076929
+76518      1195.331311  ...       7.086179
+
+[5 rows x 30 columns]
+Size of dataset after feature selection: 19 MB
+Checking for NaNs...
+NaNs in column contrail_CO2_km: 0
+NaNs in column total_flight_distance_km: 0
+NaNs in column day_sin: 0
+NaNs in column day_cos: 0
+NaNs in column start_hour_sin: 0
+NaNs in column start_hour_cos: 0
+NaNs in column end_hour_sin: 0
+NaNs in column end_hour_cos: 0
+NaNs in column mid_hour_sin: 0
+NaNs in column mid_hour_cos: 0
+NaNs in column time_span_hours: 0
+NaNs in column crosses_midnight: 0
+NaNs in column land_score: 0
+NaNs in column bearing_sin: 0
+NaNs in column bearing_cos: 0
+NaNs in column OriginLon_sin: 0
+NaNs in column DestinationLon_sin: 0
+NaNs in column OriginLon_cos: 0
+NaNs in column DestinationLon_cos: 0
+NaNs in column OriginLat: 0
+NaNs in column DestinationLat: 0
+NaNs in column night_score_full_0: 0
+NaNs in column night_score_full_1: 0
+NaNs in column night_score_full_2: 0
+NaNs in column night_score_full_3: 0
+NaNs in column night_score_bool_0: 0
+NaNs in column night_score_bool_1: 0
+NaNs in column night_score_bool_2: 0
+NaNs in column night_score_bool_3: 0
+NaNs in column contrail_type: 0
+Done checking for NaNs
+DataFrame after dropping:        contrail_CO2_km  ...  contrail_type
+8316       1521.312276  ...       7.327329
+79486      1317.331685  ...       7.183364
+66452      1154.761100  ...       7.051649
+1383       1184.326446  ...       7.076929
+76518      1195.331311  ...       7.086179
+
+[5 rows x 30 columns]
+Checking for NaNs 2nd time...
+NaNs in column contrail_CO2_km: 0
+NaNs in column total_flight_distance_km: 0
+NaNs in column day_sin: 0
+NaNs in column day_cos: 0
+NaNs in column start_hour_sin: 0
+NaNs in column start_hour_cos: 0
+NaNs in column end_hour_sin: 0
+NaNs in column end_hour_cos: 0
+NaNs in column mid_hour_sin: 0
+NaNs in column mid_hour_cos: 0
+NaNs in column time_span_hours: 0
+NaNs in column crosses_midnight: 0
+NaNs in column land_score: 0
+NaNs in column bearing_sin: 0
+NaNs in column bearing_cos: 0
+NaNs in column OriginLon_sin: 0
+NaNs in column DestinationLon_sin: 0
+NaNs in column OriginLon_cos: 0
+NaNs in column DestinationLon_cos: 0
+NaNs in column OriginLat: 0
+NaNs in column DestinationLat: 0
+NaNs in column night_score_full_0: 0
+NaNs in column night_score_full_1: 0
+NaNs in column night_score_full_2: 0
+NaNs in column night_score_full_3: 0
+NaNs in column night_score_bool_0: 0
+NaNs in column night_score_bool_1: 0
+NaNs in column night_score_bool_2: 0
+NaNs in column night_score_bool_3: 0
+NaNs in column contrail_type: 0
+Done checking for NaNs
+Checking for inf...
+inf in column contrail_CO2_km: 0
+inf in column total_flight_distance_km: 0
+inf in column day_sin: 0
+inf in column day_cos: 0
+inf in column start_hour_sin: 0
+inf in column start_hour_cos: 0
+inf in column end_hour_sin: 0
+inf in column end_hour_cos: 0
+inf in column mid_hour_sin: 0
+inf in column mid_hour_cos: 0
+inf in column time_span_hours: 0
+inf in column crosses_midnight: 0
+inf in column land_score: 0
+inf in column bearing_sin: 0
+inf in column bearing_cos: 0
+inf in column OriginLon_sin: 0
+inf in column DestinationLon_sin: 0
+inf in column OriginLon_cos: 0
+inf in column DestinationLon_cos: 0
+inf in column OriginLat: 0
+inf in column DestinationLat: 0
+inf in column night_score_full_0: 0
+inf in column night_score_full_1: 0
+inf in column night_score_full_2: 0
+inf in column night_score_full_3: 0
+inf in column night_score_bool_0: 0
+inf in column night_score_bool_1: 0
+inf in column night_score_bool_2: 0
+inf in column night_score_bool_3: 0
+inf in column contrail_type: 0
+Done checking for infs
+Size of dataset after type conversion: 14 MB
+Columns: ['contrail_CO2_km', 'total_flight_distance_km', 'day_sin', 'day_cos', 'start_hour_sin', 'start_hour_cos', 'end_hour_sin', 'end_hour_cos', 'mid_hour_sin', 'mid_hour_cos', 'time_span_hours', 'crosses_midnight', 'land_score', 'bearing_sin', 'bearing_cos', 'OriginLon_sin', 'DestinationLon_sin', 'OriginLon_cos', 'DestinationLon_cos', 'OriginLat', 'DestinationLat', 'night_score_full_0', 'night_score_full_1', 'night_score_full_2', 'night_score_full_3', 'night_score_bool_0', 'night_score_bool_1', 'night_score_bool_2', 'night_score_bool_3', 'contrail_type']
+GridSearchCV will run 12 total iterations
+Starting GridSearchCV - this may take a while...
+Fitting 3 folds for each of 4 candidates, totalling 12 fits
+GridSearchCV completed!
+BEST Parameters: {'max_depth': 7, 'n_estimators': 10}
+Training RMSE: 1.6847
+Test RMSE: 1.8325
+Training R2: 0.295
+Test R2: 0.1593
+Training MAE: 0.9516
+Test MAE: 1.0222
+Training MAPE: 790288319000406.2
+Test MAPE: 868479018428556.6
+Test dataset shape: (24969, 30)
+Test dataset columns: ['day_sin', 'day_cos', 'start_hour_sin', 'start_hour_cos', 'end_hour_sin', 'end_hour_cos', 'mid_hour_sin', 'mid_hour_cos', 'time_span_hours', 'crosses_midnight', 'land_score', 'bearing_sin', 'bearing_cos', 'OriginLon_sin', 'DestinationLon_sin', 'OriginLon_cos', 'DestinationLon_cos', 'OriginLat', 'DestinationLat', 'night_score_full_0', 'night_score_full_1', 'night_score_full_2', 'night_score_full_3', 'night_score_bool_0', 'night_score_bool_1', 'night_score_bool_2', 'night_score_bool_3', 'preds', 'contrail_CO2_km', 'total_flight_distance_km']
+Unique values in night_score_bool_2: [100.          60.           0.           6.66666667  40.
+  63.33333333  70.          50.          33.33333333  73.33333333
+  80.          96.66666667  46.66666667  56.66666667  90.
+  10.          86.66666667  53.33333333  20.          16.66666667
+  76.66666667  83.33333333   3.33333333  36.66666667  66.66666667
+  13.33333333  43.33333333  30.          23.33333333  26.66666667
+  93.33333333]
+Count of values == 100: 6846
+Count of values != 100: 18123
+Sum of contrail_CO2_km: 259167.4489776919
+x_asc size: 24969
+NaN in contrail_CO2_km: 0
+Min total_flight_distance_km: 50.05284556055314
+Max total_flight_distance_km: 15344.522969806481
+Min contrail_CO2_km: -451.6624794333843
+Max contrail_CO2_km: 1195.3313111211912
+Sample contrail_CO2_km values: 67136    0.000000
+85275    0.000000
+53344    0.000000
+15905    0.000000
+53091   -0.123152
+Name: contrail_CO2_km, dtype: float64
+Orange curve - x length: 24969
+Orange curve - x sum: 259167.44897769194
+Orange curve - x_asc sum: 259167.4489776919
+Orange curve - first few values: 3605     0.0
+79627    0.0
+81750    0.0
+66518    0.0
+61892    0.0
+Name: contrail_CO2_km, dtype: float64
+Orange curve - last few values: 22693     0.282537
+66642     0.000000
+54301    16.077786
+79307    18.239306
+9938     74.857488
+Name: contrail_CO2_km, dtype: float64
+Orange curve - y_values range: -0.4427778345864002 to 100.0000000000001
+Orange curve - y_values first few: 3605     0.0
+79627    0.0
+81750    0.0
+66518    0.0
+61892    0.0
+Name: contrail_CO2_km, dtype: float64
+Orange curve - y_values last few: 22693     99.957875
+66642     99.957875
+54301     99.964079
+79307     99.971116
+9938     100.000000
+Name: contrail_CO2_km, dtype: float64

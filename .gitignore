@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.env
+
+# Large data — kept in Dropbox, not in git
+*.parquet
+*.pq
+*.nc
+
+# OS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+
+# Run logs (regeneratable)
+experiments/outputs/*.log
+experiments/outputs/_pool_cache_*
+
+# Whitelist the small experiment outputs we DO want tracked
+!experiments/outputs/*.csv
+!experiments/outputs/*.png
