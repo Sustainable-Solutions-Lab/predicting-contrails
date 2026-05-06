@@ -19,7 +19,7 @@ __pycache__/
 
 # Run logs (regeneratable)
 experiments/outputs/*.log
-experiments/outputs/_pool_cache_*
+experiments/outputs/_*.parquet
 figures/*.log
 
 # Trained model artifacts (regeneratable, can be large)
