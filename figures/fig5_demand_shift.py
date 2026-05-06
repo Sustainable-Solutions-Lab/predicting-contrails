@@ -291,6 +291,9 @@ def main():
     plot_demand_shift(per_flight_all, pct_with_all)
     print(f"\nWrote fig5_demand_shift.{{png,pdf}} + summary CSVs in "
           f"{time.time()-t0:.0f}s")
+    # Mirror to Dropbox Plots/
+    import subprocess
+    subprocess.run([sys.executable, str(Path(__file__).parent / "sync_to_dropbox.py")])
 
 
 if __name__ == "__main__":

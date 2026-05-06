@@ -177,6 +177,9 @@ def main():
     plt.close(fig)
     print(f"  saved fig1_map.{{png,pdf}}")
     print(f"\nTotal: {time.time()-t0:.0f}s")
+    # Mirror to Dropbox Plots/Figure 1/
+    import subprocess
+    subprocess.run([sys.executable, str(Path(__file__).parent / "sync_to_dropbox.py")])
 
 
 if __name__ == "__main__":

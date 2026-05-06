@@ -363,6 +363,9 @@ def main():
 
     print(f"\nWrote fig4_combined.{{png,pdf}}, fig4_summary.csv, "
           f"fig4_flagged.csv in {time.time()-t0:.0f}s")
+    # Mirror to Dropbox Plots/
+    import subprocess
+    subprocess.run([sys.executable, str(Path(__file__).parent / "sync_to_dropbox.py")])
 
 
 if __name__ == "__main__":

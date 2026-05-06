@@ -135,6 +135,18 @@ Inherited from prior work by Silas Whiteson. Where things stand:
 _Pending — will be filled in once the training pipeline is back in this
 repo. In the meantime, source data lives in Dropbox; see paths above._
 
+## Figure outputs
+
+Each figure script writes its outputs locally (`figures/outputs/`,
+`figures/customer_outputs/`, or `experiments/outputs/`) **and** mirrors
+them to the lab Dropbox at
+`Papers/Active Prep/WS Corp contrails (w Silas)/Plots/Figure {N}/`.
+The mirroring is done via `figures/sync_to_dropbox.py`, which each
+figure script invokes at the end. Run it manually to push the latest
+local outputs:
+
+    python figures/sync_to_dropbox.py
+
 ## Authors
 
 Silas Whiteson, Xavier Bonnemaizon (LSCE/IPSL), Marc Shapiro

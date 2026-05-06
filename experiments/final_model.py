@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 import time
 from pathlib import Path
 
@@ -232,6 +233,10 @@ def main():
         json.dump(manifest, f, indent=2, default=str)
 
     print(f"\nTotal: {time.time()-t0:.0f}s")
+    # Mirror to Dropbox Plots/Figure 3/
+    import subprocess
+    sync = Path(__file__).resolve().parent.parent / "figures" / "sync_to_dropbox.py"
+    subprocess.run([sys.executable, str(sync)])
 
 
 if __name__ == "__main__":
