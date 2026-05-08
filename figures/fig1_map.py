@@ -42,8 +42,8 @@ SAMPLE_FLIGHTS = 1_000_000          # subsample for speed; visual is saturated
 NB_WAYPOINTS = 30                    # great-circle interpolation per flight
 LON_BINS = 360                       # 1° lon
 LAT_BINS = 140                       # 1° lat from -60 to 80
-SMOOTH_SIGMA = 1.5                   # cells; higher = smoother
-MIN_FLIGHTS_PER_CELL = 30            # post-smoothing threshold
+SMOOTH_SIGMA = 3.0                   # cells; higher = smoother
+MIN_FLIGHTS_PER_CELL = 20            # post-smoothing threshold
 COASTLINE_PATH = (
     Path(__file__).resolve().parent.parent
     / "archived" / "sherlock-snapshot" / "ne_110m_admin_0_countries.zip"
@@ -143,25 +143,28 @@ def main():
     else:
         print(f"  warning: coastline file not at {COASTLINE_PATH}")
 
-    # Diverging colormap centered at zero (cooling vs warming)
-    hex_cool = ["#3288bd", "#66c2a5", "#abdda4", "#e6f598"]
-    hex_warm = ["#fee08b", "#fdae61", "#f46d43", "#d53e4f"]
-    cmap = LinearSegmentedColormap.from_list(
-        "rf_diverging", hex_cool + ["#ffffff"] + hex_warm, N=256,
-    )
+    # Full Spectral palette spanning 0 (deep blue) → wine red. Most
+    # cells are weakly positive on average, so a positive-only span
+    # uses the full color budget for the warming gradient.
+    hex_spectral = [
+        "#3288bd", "#66c2a5", "#abdda4", "#e6f598",
+        "#ffffbf", "#fee08b", "#fdae61", "#f46d43", "#d53e4f", "#9e0142",
+    ]
+    cmap = LinearSegmentedColormap.from_list("rf_spectral_r", hex_spectral, N=256)
+    cmap.set_bad(alpha=0)
 
-    # Symmetric color limits at the 98th percentile of |mean_rf|
-    finite = mean_rf[np.isfinite(mean_rf)]
-    vmax = np.nanpercentile(np.abs(finite), 98) if finite.size else 1.0
-    norm = colors.TwoSlopeNorm(vmin=-vmax, vcenter=0, vmax=vmax)
+    # vmax = 95th percentile of positive cells (negatives clip to deep blue)
+    positive = mean_rf[np.isfinite(mean_rf) & (mean_rf > 0)]
+    vmax = np.nanpercentile(positive, 95) if positive.size else 1.0
+    norm = colors.Normalize(vmin=0, vmax=vmax, clip=True)
 
     im = ax.pcolormesh(
         lon_edges, lat_edges, mean_rf.T,
         cmap=cmap, norm=norm, shading="auto",
     )
 
-    cbar = plt.colorbar(im, ax=ax, extend="both", shrink=0.7, pad=0.02)
-    cbar.set_label("Mean contrail forcing  (CO₂-eq tons / km)", fontsize=10)
+    cbar = plt.colorbar(im, ax=ax, extend="max", shrink=0.7, pad=0.02)
+    cbar.set_label("Mean contrail forcing  (kg CO₂-eq / km)", fontsize=10)
     cbar.ax.tick_params(labelsize=9)
     ax.set_xlim(-180, 180)
     ax.set_ylim(-60, 80)
