@@ -46,7 +46,7 @@ SMOOTH_SIGMA = 1.5                   # cells; higher = smoother
 MIN_FLIGHTS_PER_CELL = 30            # post-smoothing threshold
 COASTLINE_PATH = (
     Path(__file__).resolve().parent.parent
-    / "upstream" / "ne_110m_admin_0_countries.zip"
+    / "archived" / "sherlock-snapshot" / "ne_110m_admin_0_countries.zip"
 )
 RANDOM_SEED = 42
 

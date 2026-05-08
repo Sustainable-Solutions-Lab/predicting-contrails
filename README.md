@@ -87,23 +87,67 @@ must not leak into training):
 A clean schedule-only feature list is one of the first things we'll lock
 down in this repo (see `src/features/`).
 
-## Repo layout (planned)
+## Repo layout
 
 ```
 predicting-contrails/
 ├── README.md
-├── pyproject.toml          # deps, ruff, etc.
-├── data/                   # gitignored; symlink or DVC-style pointer to Dropbox
-├── src/
-│   ├── ingest/             # read adjustedEFs shards, dedupe, qc
-│   ├── features/           # schedule-only feature engineering
-│   ├── models/             # top-decile classifier + RF regressor
-│   ├── evaluate/           # Lorenz curves, F1, calibration
-│   └── apply/              # apply rules to customer datasets
-├── notebooks/              # exploratory; not the source of truth
-├── figures/                # scripts that emit the manuscript figures
-└── manuscript/             # LaTeX or markdown draft (kept here for now)
+├── .gitignore
+├── experiments/                # training + evaluation scripts
+│   ├── feature_pruning.py        # FULL vs LEAN vs LEAN+AC sweep
+│   ├── hyperparameter_tune.py    # 24-config grid + early stopping
+│   ├── final_model.py            # canonical retrain + Fig 3c
+│   └── outputs/                  # CSVs, PNGs (cache + joblib gitignored)
+├── figures/                    # publication figure scripts
+│   ├── fig1_map.py
+│   ├── fig4_customer.py
+│   ├── fig5_demand_shift.py
+│   ├── sync_to_dropbox.py        # mirrors outputs into Dropbox
+│   ├── outputs/                  # public figure outputs (committed)
+│   └── customer_outputs/         # gitignored; sensitive
+├── manuscript/                 # paper draft + .docx builder
+│   ├── draft.md
+│   ├── build_draft_docx.py
+│   └── Working Draft <date> [Contrails - autodraft].docx
+└── archived/                   # historical artifacts, kept for traceability
+    └── sherlock-snapshot/        # Silas Whiteson's Sherlock files,
+                                  # imported one-time as the starting point
 ```
+
+## How the GitHub repo and the lab Dropbox interact
+
+This is a hybrid project: code lives in GitHub for version control and
+collaboration, while data, raw figure outputs, the Illustrator-polished
+figures, and the manuscript drafts live in the lab Dropbox under
+`Papers/Active Prep/WS Corp contrails (w Silas)/`.
+
+| Where it lives | What's there | Authoritative for |
+|---|---|---|
+| **GitHub** (private) | Code, manuscript markdown + .docx builder, the auto-generated .docx, small CSV summary outputs | Reproducibility, code review, change history |
+| **Dropbox** `adjustedEFs/` | Per-month process-model parquets (94 shards, ~52M flights) | Training data |
+| **Dropbox** `Results/` | Customer 1 and Customer 2 flight logs (sensitive — never in repo) | Customer applications |
+| **Dropbox** `Plots/Figure {N}/` | **Raw machine-generated figures** auto-mirrored from this repo | Latest model outputs (bypasses git for binaries) |
+| **Dropbox** `Plots/Figure {N}/archived/` | Pre-existing or superseded figure outputs | Historical record |
+| **Dropbox** `Figures/` | **Illustrator-polished publication versions** maintained by hand | Manuscript-ready figures |
+| **Dropbox** `Manuscript/` | Hand-edited Working Drafts + autodraft mirror | Active writing |
+
+In short: **`Plots/` is what the code emits, `Figures/` is what humans
+clean up for publication.** Each figure script auto-syncs its
+`outputs/` to `Plots/Figure {N}/` via `figures/sync_to_dropbox.py`.
+
+## Figure outputs
+
+Each figure script writes locally (`figures/outputs/`,
+`figures/customer_outputs/`, or `experiments/outputs/`) **and** mirrors
+to `Plots/Figure {N}/` in Dropbox via `sync_to_dropbox.py`, which each
+figure script invokes at the end. Run it manually to push the latest
+local outputs without regenerating:
+
+    python figures/sync_to_dropbox.py
+
+To regenerate the Illustrator-ready `Figures/` versions, open the
+corresponding .ai file in Dropbox and re-import the latest raster from
+`Plots/`.
 
 ## Status
 
@@ -132,20 +176,24 @@ Inherited from prior work by Silas Whiteson. Where things stand:
 
 ## Reproducing
 
-_Pending — will be filled in once the training pipeline is back in this
-repo. In the meantime, source data lives in Dropbox; see paths above._
+```bash
+# 1. Build the pooled feature cache and run the lean-vs-full sweep
+python experiments/feature_pruning.py
+# 2. Hyperparameter grid (loads cache from step 1)
+python experiments/hyperparameter_tune.py
+# 3. Train the canonical model and produce Fig 3c
+python experiments/final_model.py
+# 4. Figures (each auto-syncs to Dropbox/Plots/)
+python figures/fig1_map.py
+python figures/fig5_demand_shift.py     # builds 2021 predictions cache
+python figures/fig4_customer.py         # uses fig5's cache
+# 5. Manuscript autodraft (also mirrored to Dropbox/Manuscript/)
+python manuscript/build_draft_docx.py
+```
 
-## Figure outputs
-
-Each figure script writes its outputs locally (`figures/outputs/`,
-`figures/customer_outputs/`, or `experiments/outputs/`) **and** mirrors
-them to the lab Dropbox at
-`Papers/Active Prep/WS Corp contrails (w Silas)/Plots/Figure {N}/`.
-The mirroring is done via `figures/sync_to_dropbox.py`, which each
-figure script invokes at the end. Run it manually to push the latest
-local outputs:
-
-    python figures/sync_to_dropbox.py
+The 2.35 GB pooled feature cache and 0.77 GB 2021 predictions cache are
+gitignored; both are rebuilt on first run from the Dropbox parquets in
+~6 min apiece, and reused across subsequent runs.
 
 ## Authors
 
