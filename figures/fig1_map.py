@@ -1,15 +1,15 @@
 """
-Fig 1b — global map of mean contrail forcing.
+Fig 1b — global map of mean contrail energy forcing per passenger-km.
 
-Replaces Silas's warmingmap.py with a smoother render. The "dotted" look
-in the prior version came from sparse 2D histogram bins (only a few
-thousand of 50k cells populated). Fix: apply a 2D Gaussian smoothing
-filter to both the sum-of-RF and count-of-flights arrays before dividing,
-which fills in adjacent cells with weighted averages. Cells that remain
-below the minimum-flight threshold even after smoothing stay masked.
+For each of ~1M sampled commercial flights from 2019 + 2021, we generate
+30 great-circle waypoints and accumulate Joulesperpasskm (energy forcing
+divided by passenger-km, computed by the contrails team) into a 360x140
+lat/lon grid. A 2D Gaussian smoother is applied to both the sum-of-RF
+and count-of-flights arrays before dividing, then the result is rendered
+with imshow + bicubic interpolation for smooth cell-to-cell transitions.
+Country borders are drawn on top of the data as hairlines.
 
-Inputs : the cached pooled feature parquet from the feature-pruning run
-         (52M flights, all months 2019+2021).
+Inputs : the per-month process-model parquets in Dropbox.
 Output : figures/outputs/fig1_map.{png,pdf}
 """
 
@@ -28,17 +28,15 @@ from matplotlib.colors import LinearSegmentedColormap
 from pyproj import Geod
 from scipy.ndimage import gaussian_filter
 
-# Re-use paths and feature lists from the experiment.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "experiments"))
-from feature_pruning import OUT as EXP_OUT  # noqa: E402
+from feature_pruning import DROPBOX_PARQUETS  # noqa: E402
 
 OUT = Path(__file__).parent / "outputs"
 OUT.mkdir(parents=True, exist_ok=True)
 
-CACHE = EXP_OUT / "_pool_cache_all.parquet"
-
 # ── Tunables ──────────────────────────────────────────────────────────────
-SAMPLE_FLIGHTS = 1_000_000          # subsample for speed; visual is saturated
+SAMPLE_FLIGHTS = 800_000             # target sample size
+N_FILES = 16                         # random monthly shards to read
 NB_WAYPOINTS = 30                    # great-circle interpolation per flight
 LON_BINS = 360                       # 1° lon
 LAT_BINS = 140                       # 1° lat from -60 to 80
@@ -50,55 +48,71 @@ COASTLINE_PATH = (
 )
 RANDOM_SEED = 42
 
+CACHE_PATH = OUT / "_fig1_jpkm_sample.parquet"  # gitignored via *.parquet glob
 
-def great_circle_xy(lon0, lat0, lon1, lat1, nb=NB_WAYPOINTS):
-    geod = Geod(ellps="WGS84")
-    pts = geod.npts(lon0, lat0, lon1, lat1, nb)
-    return np.asarray(pts)
+
+def load_jpkm_sample() -> pd.DataFrame:
+    """Read Joulesperpasskm + endpoints from a random subset of monthly
+    parquets and persist to a small local cache for fast re-runs."""
+    if CACHE_PATH.exists():
+        df = pd.read_parquet(CACHE_PATH)
+        print(f"Loaded {len(df):,} flights from cache {CACHE_PATH.name}")
+        return df
+
+    all_files = sorted(DROPBOX_PARQUETS.glob("features_*_gdf.pq"))
+    rng = np.random.default_rng(RANDOM_SEED)
+    pick = rng.choice(len(all_files), size=min(N_FILES, len(all_files)), replace=False)
+    files = [all_files[i] for i in sorted(pick)]
+    print(f"Reading {len(files)} of {len(all_files)} monthly shards "
+          f"(target {SAMPLE_FLIGHTS:,} flights) ...", flush=True)
+
+    needed = [
+        "OriginLon", "OriginLat",
+        "DestinationLon", "DestinationLat",
+        "Joulesperpasskm", "total_flight_distance_km",
+    ]
+    per_file = int(np.ceil(SAMPLE_FLIGHTS / len(files)))
+    pieces = []
+    n_failed = 0
+    for i, f in enumerate(files, 1):
+        t = time.time()
+        try:
+            df = pd.read_parquet(f, columns=needed)
+        except OSError as e:
+            n_failed += 1
+            print(f"  [{i:2d}/{len(files)}] {f.name}: SKIPPED ({e})", flush=True)
+            continue
+        df = df.dropna(subset=["Joulesperpasskm"])
+        if len(df) > per_file:
+            df = df.sample(per_file, random_state=RANDOM_SEED + i)
+        pieces.append(df)
+        print(f"  [{i:2d}/{len(files)}] {f.name}: kept {len(df):,}  "
+              f"({time.time()-t:.1f}s)", flush=True)
+    if n_failed:
+        print(f"  ({n_failed} files skipped due to Dropbox cloud-fetch errors)")
+
+    df = pd.concat(pieces, ignore_index=True)
+    if len(df) > SAMPLE_FLIGHTS:
+        df = df.sample(SAMPLE_FLIGHTS, random_state=RANDOM_SEED)
+    df.to_parquet(CACHE_PATH)
+    print(f"Cached {len(df):,} flights to {CACHE_PATH.name}")
+    return df
 
 
 def main():
     t0 = time.time()
-    print(f"Loading cache {CACHE.name} ...")
-    df = pd.read_parquet(
-        CACHE,
-        columns=[
-            "OriginLon_sin", "OriginLon_cos", "OriginLat",
-            "DestinationLon_sin", "DestinationLon_cos", "DestinationLat",
-            "contrail_CO2_km", "total_flight_distance_km",
-        ],
-    )
-    # Recover raw longitude from cyclic encoding:
-    # encoder used  sin(pi * lon * 2 / 360) → atan2(sin, cos) * 180/pi
-    df["OriginLon"] = np.degrees(
-        np.arctan2(df["OriginLon_sin"].astype(np.float64),
-                   df["OriginLon_cos"].astype(np.float64))
-    )
-    df["DestinationLon"] = np.degrees(
-        np.arctan2(df["DestinationLon_sin"].astype(np.float64),
-                   df["DestinationLon_cos"].astype(np.float64))
-    )
-    df = df[[
-        "OriginLon", "OriginLat", "DestinationLon", "DestinationLat",
-        "contrail_CO2_km", "total_flight_distance_km",
-    ]]
-    print(f"  {len(df):,} rows in {time.time()-t0:.1f}s")
-
-    rng = np.random.default_rng(RANDOM_SEED)
-    if SAMPLE_FLIGHTS and len(df) > SAMPLE_FLIGHTS:
-        idx = rng.choice(len(df), size=SAMPLE_FLIGHTS, replace=False)
-        df = df.iloc[idx].reset_index(drop=True)
-    print(f"  sampled to {len(df):,} flights")
+    df = load_jpkm_sample()
+    print(f"  load done in {time.time()-t0:.0f}s")
 
     # ── Generate waypoints per flight ─────────────────────────────────────
-    print(f"\nGenerating ~{NB_WAYPOINTS} great-circle waypoints per flight ...")
+    print(f"\nGenerating {NB_WAYPOINTS} great-circle waypoints per flight ...")
     geod = Geod(ellps="WGS84")
     n = len(df)
     trajx = np.empty(n * NB_WAYPOINTS, dtype=np.float32)
     trajy = np.empty(n * NB_WAYPOINTS, dtype=np.float32)
     traj_w = np.empty(n * NB_WAYPOINTS, dtype=np.float32)
 
-    co2_km = df["contrail_CO2_km"].to_numpy()
+    jpkm = df["Joulesperpasskm"].to_numpy(dtype=np.float64)
     olon = df["OriginLon"].to_numpy()
     olat = df["OriginLat"].to_numpy()
     dlon = df["DestinationLon"].to_numpy()
@@ -111,14 +125,14 @@ def main():
         s = i * NB_WAYPOINTS
         trajx[s:s + NB_WAYPOINTS] = arr[:, 0]
         trajy[s:s + NB_WAYPOINTS] = arr[:, 1]
-        traj_w[s:s + NB_WAYPOINTS] = co2_km[i]
-        if (i + 1) % 100_000 == 0:
+        traj_w[s:s + NB_WAYPOINTS] = jpkm[i]
+        if (i + 1) % 200_000 == 0:
             elapsed = time.time() - t1
             eta = elapsed / (i + 1) * (n - i - 1)
             print(f"  {i+1:,}/{n:,}   eta {eta/60:.1f} min", flush=True)
     print(f"  waypoints done in {time.time()-t1:.0f}s")
 
-    # ── 2D histogram with smoothing ───────────────────────────────────────
+    # ── 2D histogram + smoothing ──────────────────────────────────────────
     print("\nBinning + smoothing ...")
     lon_edges = np.linspace(-180, 180, LON_BINS + 1)
     lat_edges = np.linspace(-60, 80, LAT_BINS + 1)
@@ -126,7 +140,6 @@ def main():
         trajx, trajy, bins=[lon_edges, lat_edges], weights=traj_w,
     )
     count, _, _ = np.histogram2d(trajx, trajy, bins=[lon_edges, lat_edges])
-
     sum_s = gaussian_filter(sum_rf, sigma=SMOOTH_SIGMA)
     count_s = gaussian_filter(count, sigma=SMOOTH_SIGMA)
     mean_rf = np.divide(sum_s, count_s, out=np.full_like(sum_s, np.nan),
@@ -136,16 +149,8 @@ def main():
     # ── Plot ─────────────────────────────────────────────────────────────
     print("\nRendering ...")
     fig, ax = plt.subplots(figsize=(12, 5.5))
-    if COASTLINE_PATH.exists():
-        gpd.read_file(COASTLINE_PATH).plot(
-            ax=ax, color="white", edgecolor="#444444", lw=0.4,
-        )
-    else:
-        print(f"  warning: coastline file not at {COASTLINE_PATH}")
 
-    # Full Spectral palette spanning 0 (deep blue) → wine red. Most
-    # cells are weakly positive on average, so a positive-only span
-    # uses the full color budget for the warming gradient.
+    # Full Spectral_r palette spanning 0 → wine red. Negatives clip to deep blue.
     hex_spectral = [
         "#3288bd", "#66c2a5", "#abdda4", "#e6f598",
         "#ffffbf", "#fee08b", "#fdae61", "#f46d43", "#d53e4f", "#9e0142",
@@ -153,18 +158,32 @@ def main():
     cmap = LinearSegmentedColormap.from_list("rf_spectral_r", hex_spectral, N=256)
     cmap.set_bad(alpha=0)
 
-    # vmax = 95th percentile of positive cells (negatives clip to deep blue)
     positive = mean_rf[np.isfinite(mean_rf) & (mean_rf > 0)]
     vmax = np.nanpercentile(positive, 95) if positive.size else 1.0
     norm = colors.Normalize(vmin=0, vmax=vmax, clip=True)
 
-    im = ax.pcolormesh(
-        lon_edges, lat_edges, mean_rf.T,
-        cmap=cmap, norm=norm, shading="auto",
+    # Use imshow with bicubic interpolation for smooth cell-to-cell gradient.
+    # Mask the NaN regions so the basemap shows through as white.
+    masked = np.ma.masked_invalid(mean_rf.T)
+    im = ax.imshow(
+        masked,
+        extent=[lon_edges[0], lon_edges[-1], lat_edges[0], lat_edges[-1]],
+        origin="lower", cmap=cmap, norm=norm,
+        interpolation="bicubic", aspect="auto",
+        zorder=1,
     )
 
+    # Country borders ON TOP as hairlines
+    if COASTLINE_PATH.exists():
+        gpd.read_file(COASTLINE_PATH).boundary.plot(
+            ax=ax, color="#222222", lw=0.35, zorder=10,
+        )
+    else:
+        print(f"  warning: coastline file not at {COASTLINE_PATH}")
+
     cbar = plt.colorbar(im, ax=ax, extend="max", shrink=0.7, pad=0.02)
-    cbar.set_label("Mean contrail forcing  (kg CO₂-eq / km)", fontsize=10)
+    cbar.set_label("Mean contrail energy forcing  (J / passenger·km)",
+                   fontsize=10)
     cbar.ax.tick_params(labelsize=9)
     ax.set_xlim(-180, 180)
     ax.set_ylim(-60, 80)
