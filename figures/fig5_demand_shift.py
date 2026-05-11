@@ -228,6 +228,7 @@ def plot_demand_shift(per_flight: pd.DataFrame, pct_with: dict):
     plt.tight_layout()
     fig.savefig(OUT / "fig5_demand_shift.png", dpi=200, bbox_inches="tight")
     fig.savefig(OUT / "fig5_demand_shift.pdf", bbox_inches="tight")
+    fig.savefig(OUT / "fig5_demand_shift.eps", bbox_inches="tight")
     plt.close(fig)
 
 

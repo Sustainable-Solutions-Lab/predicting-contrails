@@ -359,6 +359,7 @@ def main():
     plt.tight_layout()
     fig.savefig(OUT / "fig4_combined.png", dpi=200, bbox_inches="tight")
     fig.savefig(OUT / "fig4_combined.pdf", bbox_inches="tight")
+    fig.savefig(OUT / "fig4_combined.eps", bbox_inches="tight")
     plt.close(fig)
 
     print(f"\nWrote fig4_combined.{{png,pdf}}, fig4_summary.csv, "

@@ -28,14 +28,18 @@ EXP_OUT = REPO / "experiments" / "outputs"
 # (figure_number, source_paths)
 MAPPING = [
     (1, [HERE / "outputs" / "fig1_map.png",
-         HERE / "outputs" / "fig1_map.pdf"]),
+         HERE / "outputs" / "fig1_map.pdf",
+         HERE / "outputs" / "fig1_map.eps"]),
     (3, [EXP_OUT / "fig3c.png",
-         EXP_OUT / "fig3c.pdf"]),
+         EXP_OUT / "fig3c.pdf",
+         EXP_OUT / "fig3c.eps"]),
     (4, [HERE / "customer_outputs" / "fig4_combined.png",
          HERE / "customer_outputs" / "fig4_combined.pdf",
+         HERE / "customer_outputs" / "fig4_combined.eps",
          HERE / "customer_outputs" / "fig4_summary.csv"]),
     (5, [HERE / "customer_outputs" / "fig5_demand_shift.png",
          HERE / "customer_outputs" / "fig5_demand_shift.pdf",
+         HERE / "customer_outputs" / "fig5_demand_shift.eps",
          HERE / "customer_outputs" / "fig5_per_flight.csv"]),
 ]
 

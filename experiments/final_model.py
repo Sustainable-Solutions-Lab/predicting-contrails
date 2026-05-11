@@ -215,8 +215,9 @@ def main():
     )
     plt.savefig(OUT / "fig3c.png", dpi=200, bbox_inches="tight")
     plt.savefig(OUT / "fig3c.pdf", bbox_inches="tight")
+    plt.savefig(OUT / "fig3c.eps", bbox_inches="tight")
     plt.close()
-    print(f"\nWrote fig3c.{{png,pdf}}")
+    print(f"\nWrote fig3c.{{png,pdf,eps}}")
 
     # Save a JSON manifest of the canonical model for the paper
     manifest = dict(

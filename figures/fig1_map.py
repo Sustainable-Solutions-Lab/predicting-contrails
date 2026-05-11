@@ -196,8 +196,9 @@ def main():
 
     fig.savefig(OUT / "fig1_map.png", dpi=200, bbox_inches="tight")
     fig.savefig(OUT / "fig1_map.pdf", bbox_inches="tight")
+    fig.savefig(OUT / "fig1_map.eps", bbox_inches="tight")
     plt.close(fig)
-    print(f"  saved fig1_map.{{png,pdf}}")
+    print(f"  saved fig1_map.{{png,pdf,eps}}")
     print(f"\nTotal: {time.time()-t0:.0f}s")
     # Mirror to Dropbox Plots/Figure 1/
     import subprocess
