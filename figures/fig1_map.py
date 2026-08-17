@@ -29,10 +29,9 @@ from pyproj import Geod
 from scipy.ndimage import gaussian_filter
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "experiments"))
-from feature_pruning import DROPBOX_PARQUETS  # noqa: E402
+from feature_pruning import DROPBOX_PARQUETS, DROPBOX_PLOTS, OUT as EXP_OUT  # noqa: E402
 
-OUT = Path(__file__).parent / "outputs"
-OUT.mkdir(parents=True, exist_ok=True)
+OUT = DROPBOX_PLOTS
 
 # ── Tunables ──────────────────────────────────────────────────────────────
 SAMPLE_FLIGHTS = 800_000             # target sample size
@@ -48,7 +47,7 @@ COASTLINE_PATH = (
 )
 RANDOM_SEED = 42
 
-CACHE_PATH = OUT / "_fig1_jpkm_sample.parquet"  # gitignored via *.parquet glob
+CACHE_PATH = EXP_OUT / "_fig1_jpkm_sample.parquet"  # gitignored via *.parquet glob
 
 
 def load_jpkm_sample() -> pd.DataFrame:
@@ -158,6 +157,10 @@ def main():
     cmap = LinearSegmentedColormap.from_list("rf_spectral_r", hex_spectral, N=256)
     cmap.set_bad(alpha=0)
 
+    # Plot in units of 10^8 J so the colorbar ticks are plain numbers
+    # instead of matplotlib's floating "1e8" offset text.
+    mean_rf = mean_rf / 1e8
+
     positive = mean_rf[np.isfinite(mean_rf) & (mean_rf > 0)]
     vmax = np.nanpercentile(positive, 95) if positive.size else 1.0
     norm = colors.Normalize(vmin=0, vmax=vmax, clip=True)
@@ -182,17 +185,13 @@ def main():
         print(f"  warning: coastline file not at {COASTLINE_PATH}")
 
     cbar = plt.colorbar(im, ax=ax, extend="max", shrink=0.7, pad=0.02)
-    cbar.set_label("Mean contrail energy forcing  (J / passenger·km)",
+    cbar.set_label("Mean contrail energy forcing\n(10$^8$ J / passenger·km)",
                    fontsize=10)
     cbar.ax.tick_params(labelsize=9)
     ax.set_xlim(-180, 180)
     ax.set_ylim(-60, 80)
     ax.set_xlabel("Longitude (°)")
     ax.set_ylabel("Latitude (°)")
-    ax.set_title(
-        f"Fig 1b — Mean contrail forcing along flown great-circles "
-        f"({SAMPLE_FLIGHTS:,} flights sampled, σ={SMOOTH_SIGMA} cells)"
-    )
 
     fig.savefig(OUT / "fig1_map.png", dpi=200, bbox_inches="tight")
     fig.savefig(OUT / "fig1_map.pdf", bbox_inches="tight")
@@ -200,9 +199,6 @@ def main():
     plt.close(fig)
     print(f"  saved fig1_map.{{png,pdf,eps}}")
     print(f"\nTotal: {time.time()-t0:.0f}s")
-    # Mirror to Dropbox Plots/Figure 1/
-    import subprocess
-    subprocess.run([sys.executable, str(Path(__file__).parent / "sync_to_dropbox.py")])
 
 
 if __name__ == "__main__":

@@ -98,20 +98,21 @@ predicting-contrails/
 │   ├── hyperparameter_tune.py    # 24-config grid + early stopping
 │   ├── final_model.py            # canonical retrain + Fig 3c
 │   └── outputs/                  # CSVs, PNGs (cache + joblib gitignored)
-├── figures/                    # publication figure scripts
-│   ├── fig1_map.py
+├── figures/                    # publication figure scripts (no outputs here —
+│   ├── fig1_map.py             #   everything renders straight to Dropbox Plots/)
+│   ├── fig1c_matrix.py
+│   ├── fig2_concentration.py
 │   ├── fig4_customer.py
-│   ├── fig5_demand_shift.py
-│   ├── sync_to_dropbox.py        # mirrors outputs into Dropbox
-│   ├── outputs/                  # public figure outputs (committed)
-│   └── customer_outputs/         # gitignored; sensitive
+│   └── fig5_demand_shift.py
 ├── manuscript/                 # paper draft + .docx builder
 │   ├── draft.md
 │   ├── build_draft_docx.py
 │   └── Working Draft <date> [Contrails - autodraft].docx
 └── archived/                   # historical artifacts, kept for traceability
-    └── sherlock-snapshot/        # Silas Whiteson's Sherlock files,
-                                  # imported one-time as the starting point
+    ├── sherlock-snapshot/        # Silas Whiteson's Sherlock files,
+    │                             # imported one-time as the starting point
+    └── silas-local/              # Silas's laptop-side originals
+                                  # (Flights.py, finalcolumns.py, warmingmap.py)
 ```
 
 ## How the GitHub repo and the lab Dropbox interact
@@ -119,31 +120,21 @@ predicting-contrails/
 This is a hybrid project: code lives in GitHub for version control and
 collaboration, while data, raw figure outputs, the Illustrator-polished
 figures, and the manuscript drafts live in the lab Dropbox under
-`Papers/Active Prep/WS Corp contrails (w Silas)/`.
+`Papers/Active Prep/Contrails/WS Corp contrails (w Silas)/`.
 
 | Where it lives | What's there | Authoritative for |
 |---|---|---|
 | **GitHub** (private) | Code, manuscript markdown + .docx builder, the auto-generated .docx, small CSV summary outputs | Reproducibility, code review, change history |
 | **Dropbox** `adjustedEFs/` | Per-month process-model parquets (94 shards, ~52M flights) | Training data |
 | **Dropbox** `Results/` | Customer 1 and Customer 2 flight logs (sensitive — never in repo) | Customer applications |
-| **Dropbox** `Plots/Figure {N}/` | **Raw machine-generated figures** auto-mirrored from this repo | Latest model outputs (bypasses git for binaries) |
-| **Dropbox** `Plots/Figure {N}/archived/` | Pre-existing or superseded figure outputs | Historical record |
+| **Dropbox** `Plots/` | **Raw machine-generated figures**, written directly by the scripts in this repo | Latest model outputs (bypasses git for binaries) |
 | **Dropbox** `Figures/` | **Illustrator-polished publication versions** maintained by hand | Manuscript-ready figures |
 | **Dropbox** `Manuscript/` | Hand-edited Working Drafts + autodraft mirror | Active writing |
 
 In short: **`Plots/` is what the code emits, `Figures/` is what humans
-clean up for publication.** Each figure script auto-syncs its
-`outputs/` to `Plots/Figure {N}/` via `figures/sync_to_dropbox.py`.
-
-## Figure outputs
-
-Each figure script writes locally (`figures/outputs/`,
-`figures/customer_outputs/`, or `experiments/outputs/`) **and** mirrors
-to `Plots/Figure {N}/` in Dropbox via `sync_to_dropbox.py`, which each
-figure script invokes at the end. Run it manually to push the latest
-local outputs without regenerating:
-
-    python figures/sync_to_dropbox.py
+clean up for publication.** Every figure script saves its png/pdf/eps
+(plus any per-figure CSV) directly into `Plots/` — there are no output
+folders in the repo, and nothing needs syncing.
 
 To regenerate the Illustrator-ready `Figures/` versions, open the
 corresponding .ai file in Dropbox and re-import the latest raster from
@@ -183,8 +174,10 @@ python experiments/feature_pruning.py
 python experiments/hyperparameter_tune.py
 # 3. Train the canonical model and produce Fig 3c
 python experiments/final_model.py
-# 4. Figures (each auto-syncs to Dropbox/Plots/)
+# 4. Figures (each writes straight to Dropbox/Plots/)
 python figures/fig1_map.py
+python figures/fig1c_matrix.py          # region-to-region forcing matrix
+python figures/fig2_concentration.py
 python figures/fig5_demand_shift.py     # builds 2021 predictions cache
 python figures/fig4_customer.py         # uses fig5's cache
 # 5. Manuscript autodraft (also mirrored to Dropbox/Manuscript/)

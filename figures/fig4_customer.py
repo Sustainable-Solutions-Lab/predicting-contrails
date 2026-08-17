@@ -35,15 +35,14 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "experiments"))
-from feature_pruning import OUT as EXP_OUT  # noqa: E402
+from feature_pruning import DROPBOX_PLOTS, OUT as EXP_OUT  # noqa: E402
 
 CUST_DIR = Path(
     "/Users/stevedavis/Library/CloudStorage/Dropbox/"
-    "Papers/Active Prep/WS Corp contrails (w Silas)/Results"
+    "Papers/Active Prep/Contrails/WS Corp contrails (w Silas)/Results"
 )
 
-OUT = Path(__file__).parent / "customer_outputs"
-OUT.mkdir(parents=True, exist_ok=True)
+OUT = DROPBOX_PLOTS
 
 PRED_CACHE = EXP_OUT / "_2021_predictions.parquet"
 MODEL_PATH = EXP_OUT / "final_model.joblib"
@@ -254,8 +253,10 @@ def time_delta_panel(ax, flagged: pd.DataFrame, label: str):
         ax.axvline(median_h, color="#444", lw=1.2, ls="--",
                    label=f"median {median_h:.1f} h")
     if n_no_alt > 0:
+        # Sits BELOW the "median" legend entry, which occupies the
+        # upper-right corner — anchoring both at 0.95 made them collide.
         ax.text(
-            0.98, 0.95,
+            0.98, 0.82,
             f"+{n_no_alt} flights with no\nsame-route alternative",
             transform=ax.transAxes, ha="right", va="top",
             fontsize=9, color="#777",
@@ -351,11 +352,6 @@ def main():
             f"({chr(ord('a') + 2 * row + 1)}) {cust.label} time delta to alternative",
         )
 
-    fig.suptitle(
-        "Fig 4 — Avoidance scenarios with realistic alternative-flight "
-        "replacement (top-10% rule)",
-        fontsize=12, y=1.00,
-    )
     plt.tight_layout()
     fig.savefig(OUT / "fig4_combined.png", dpi=200, bbox_inches="tight")
     fig.savefig(OUT / "fig4_combined.pdf", bbox_inches="tight")
@@ -364,9 +360,6 @@ def main():
 
     print(f"\nWrote fig4_combined.{{png,pdf}}, fig4_summary.csv, "
           f"fig4_flagged.csv in {time.time()-t0:.0f}s")
-    # Mirror to Dropbox Plots/
-    import subprocess
-    subprocess.run([sys.executable, str(Path(__file__).parent / "sync_to_dropbox.py")])
 
 
 if __name__ == "__main__":

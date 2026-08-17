@@ -23,7 +23,7 @@ Pipeline:
      candidates and report alternative-density statistics.
   5. Plot.
 
-Outputs go to figures/customer_outputs/ which is gitignored.
+Outputs go straight to the Dropbox Plots/ folder (never into git).
 """
 
 from __future__ import annotations
@@ -39,13 +39,12 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "experiments"))
 from feature_pruning import (  # noqa: E402
-    DROPBOX_PARQUETS, LEAN_AC_FEATS, NEEDED_RAW_COLS, OUT as EXP_OUT,
-    add_features,
+    DROPBOX_PARQUETS, DROPBOX_PLOTS, LEAN_AC_FEATS, NEEDED_RAW_COLS,
+    OUT as EXP_OUT, add_features,
 )
 from fig4_customer import CUSTOMERS  # noqa: E402
 
-OUT = Path(__file__).parent / "customer_outputs"
-OUT.mkdir(parents=True, exist_ok=True)
+OUT = DROPBOX_PLOTS
 
 PRED_CACHE = EXP_OUT / "_2021_predictions.parquet"
 MODEL_PATH = EXP_OUT / "final_model.joblib"
@@ -221,10 +220,6 @@ def plot_demand_shift(per_flight: pd.DataFrame, pct_with: dict):
     ax.set_ylim(0, 110)
     ax.grid(alpha=0.25, axis="y")
 
-    fig.suptitle(
-        "Fig 5 — Demand-shift feasibility of the top-10% avoidance rule",
-        fontsize=12, y=1.00,
-    )
     plt.tight_layout()
     fig.savefig(OUT / "fig5_demand_shift.png", dpi=200, bbox_inches="tight")
     fig.savefig(OUT / "fig5_demand_shift.pdf", bbox_inches="tight")
@@ -292,9 +287,6 @@ def main():
     plot_demand_shift(per_flight_all, pct_with_all)
     print(f"\nWrote fig5_demand_shift.{{png,pdf}} + summary CSVs in "
           f"{time.time()-t0:.0f}s")
-    # Mirror to Dropbox Plots/
-    import subprocess
-    subprocess.run([sys.executable, str(Path(__file__).parent / "sync_to_dropbox.py")])
 
 
 if __name__ == "__main__":

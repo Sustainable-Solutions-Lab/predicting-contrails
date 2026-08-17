@@ -32,7 +32,9 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from xgboost import XGBRegressor
 
-from feature_pruning import LEAN_AC_FEATS, OUT, RANDOM_SEED, TARGET, top_k_metrics
+from feature_pruning import (
+    DROPBOX_PLOTS, LEAN_AC_FEATS, OUT, RANDOM_SEED, TARGET, top_k_metrics,
+)
 
 CACHE = OUT / "_pool_cache_all.parquet"
 MODEL_PATH = OUT / "final_model.joblib"
@@ -68,6 +70,108 @@ PRETTY = {
     "night_score_full_0": "Night fraction (sun-weighted)",
     "aircraft_type_icao": "Aircraft type (ICAO)",
 }
+
+
+def build_fig3c(perm: pd.DataFrame, co2_km: np.ndarray, yp_full: np.ndarray):
+    """Two-panel Fig 3c: Lorenz capture curve + permutation importance."""
+    order_pred = np.argsort(yp_full)[::-1]
+    order_true = np.argsort(co2_km)[::-1]
+    n = len(co2_km)
+    pos_total = np.maximum(co2_km, 0).sum()
+
+    def cum_capture(order):
+        sorted_pos = np.maximum(co2_km[order], 0)
+        return np.cumsum(sorted_pos) / pos_total
+
+    cap_pred = cum_capture(order_pred)
+    cap_true = cum_capture(order_true)
+    pct_x = np.linspace(1 / n, 100, n)
+
+    # Sub-sample x to 1000 points for plotting
+    idx_sub = np.linspace(0, n - 1, 1000).astype(int)
+
+    # wspace must leave room for the right panel's long feature names,
+    # which are drawn to the LEFT of the bars (they collided with the
+    # left panel's legend at 0.25).
+    fig = plt.figure(figsize=(12.5, 4.5))
+    gs = fig.add_gridspec(1, 2, width_ratios=[1.4, 1.0], wspace=0.55)
+
+    # (left) Lorenz curve
+    ax0 = fig.add_subplot(gs[0, 0])
+    ax0.plot(pct_x[idx_sub], cap_true[idx_sub] * 100,
+             lw=2.4, color="#1f4e79", label="Perfect knowledge")
+    ax0.plot(pct_x[idx_sub], cap_pred[idx_sub] * 100,
+             lw=2.4, color="#d1495b", label="LEAN+AC predictions")
+    ax0.plot([0, 100], [0, 100], lw=1.5, color="#888888", ls="--",
+             label="Random ordering")
+
+    # Annotations: show capture at 5% and 10%
+    for k, color in [(0.05, "#d1495b"), (0.10, "#d1495b")]:
+        x_pct = k * 100
+        idx = int(round(k * n)) - 1
+        y_pct = cap_pred[idx] * 100
+        ax0.plot([x_pct, x_pct], [0, y_pct], color=color, ls=":", lw=1.0)
+        ax0.plot([0, x_pct], [y_pct, y_pct], color=color, ls=":", lw=1.0)
+        ax0.scatter([x_pct], [y_pct], color=color, zorder=5, s=22)
+        ax0.annotate(f"{y_pct:.0f}% at top {x_pct:.0f}%",
+                     xy=(x_pct, y_pct), xytext=(x_pct + 6, y_pct - 6),
+                     fontsize=10, color=color)
+
+    ax0.set_xlim(0, 100)
+    ax0.set_ylim(0, 100)
+    ax0.set_xlabel("Flights ranked by predicted forcing (cumulative %)")
+    ax0.set_ylabel("Positive contrail forcing captured (cumulative %)")
+    ax0.legend(loc="lower right", frameon=False, fontsize=10)
+    ax0.set_title("Concentration of contrail forcing in predicted top flights")
+    ax0.grid(alpha=0.25)
+
+    # (right) Permutation importance
+    ax1 = fig.add_subplot(gs[0, 1])
+    bars = ax1.barh(perm["pretty"], perm["importance_mean"],
+                    xerr=perm["importance_std"],
+                    color="#3a7ca5", ecolor="#777777")
+    # Highlight the four "headline rule" features in a different color
+    headline = {"total_flight_distance_km", "OriginLat",
+                "night_score_full_0", "aircraft_type_icao"}
+    for bar, f in zip(bars, perm["feature"]):
+        if f in headline:
+            bar.set_color("#d1495b")
+    ax1.set_xlabel("Permutation importance (Δ R² when shuffled)")
+    ax1.set_title("Feature importance — tuned LEAN+AC")
+    ax1.grid(alpha=0.25, axis="x")
+
+    plt.savefig(DROPBOX_PLOTS / "fig3c.png", dpi=200, bbox_inches="tight")
+    plt.savefig(DROPBOX_PLOTS / "fig3c.pdf", bbox_inches="tight")
+    plt.savefig(DROPBOX_PLOTS / "fig3c.eps", bbox_inches="tight")
+    plt.close()
+    print(f"\nWrote fig3c.{{png,pdf,eps}} to {DROPBOX_PLOTS}")
+
+
+def replot():
+    """Rebuild Fig 3c from the saved model + permutation CSV — no retraining."""
+    t0 = time.time()
+    print("Plot-only mode: loading saved model and permutation CSV ...")
+    bundle = joblib.load(MODEL_PATH)
+    model = bundle["model"]
+
+    perm = pd.read_csv(OUT / "final_permutation_importance.csv")
+    perm = perm.sort_values("importance_mean", ascending=True)
+    perm["pretty"] = perm["feature"].map(PRETTY)
+
+    cols_keep = LEAN_AC_FEATS + [TARGET, "contrail_CO2_km", "year"]
+    pool = pd.read_parquet(CACHE, columns=cols_keep)
+    pool["aircraft_type_icao"] = pool["aircraft_type_icao"].astype("category")
+    _, test = train_test_split(
+        pool, test_size=1/3, random_state=RANDOM_SEED, stratify=pool["year"],
+    )
+    del pool
+    print(f"  test: {len(test):,} rows in {time.time()-t0:.0f}s")
+
+    yp_full = model.predict(test[LEAN_AC_FEATS])
+    co2_km = test["contrail_CO2_km"].to_numpy()
+    build_fig3c(perm, co2_km, yp_full)
+
+    print(f"\nTotal: {time.time()-t0:.0f}s")
 
 
 def main():
@@ -140,84 +244,7 @@ def main():
     # ── Pre-compute the Lorenz curve from predictions ──
     yp_full = model.predict(test[LEAN_AC_FEATS])
     co2_km = test["contrail_CO2_km"].to_numpy()
-
-    # Sort by predicted forcing (descending)
-    order_pred = np.argsort(yp_full)[::-1]
-    # Sort by true forcing (descending) — perfect-knowledge curve
-    order_true = np.argsort(co2_km)[::-1]
-    # Random ordering — uniform
-    n = len(co2_km)
-    pos_total = np.maximum(co2_km, 0).sum()
-
-    def cum_capture(order):
-        sorted_pos = np.maximum(co2_km[order], 0)
-        return np.cumsum(sorted_pos) / pos_total
-
-    cap_pred = cum_capture(order_pred)
-    cap_true = cum_capture(order_true)
-    pct_x = np.linspace(1 / n, 100, n)
-
-    # Sub-sample x to 1000 points for plotting
-    idx_sub = np.linspace(0, n - 1, 1000).astype(int)
-
-    # ── Build Fig 3c: two panels ──
-    fig = plt.figure(figsize=(12, 4.5))
-    gs = fig.add_gridspec(1, 2, width_ratios=[1.4, 1.0], wspace=0.25)
-
-    # (left) Lorenz curve
-    ax0 = fig.add_subplot(gs[0, 0])
-    ax0.plot(pct_x[idx_sub], cap_true[idx_sub] * 100,
-             lw=2.4, color="#1f4e79", label="Perfect knowledge")
-    ax0.plot(pct_x[idx_sub], cap_pred[idx_sub] * 100,
-             lw=2.4, color="#d1495b", label="LEAN+AC predictions")
-    ax0.plot([0, 100], [0, 100], lw=1.5, color="#888888", ls="--",
-             label="Random ordering")
-
-    # Annotations: show capture at 5% and 10%
-    for k, color in [(0.05, "#d1495b"), (0.10, "#d1495b")]:
-        x_pct = k * 100
-        idx = int(round(k * n)) - 1
-        y_pct = cap_pred[idx] * 100
-        ax0.plot([x_pct, x_pct], [0, y_pct], color=color, ls=":", lw=1.0)
-        ax0.plot([0, x_pct], [y_pct, y_pct], color=color, ls=":", lw=1.0)
-        ax0.scatter([x_pct], [y_pct], color=color, zorder=5, s=22)
-        ax0.annotate(f"{y_pct:.0f}% at top {x_pct:.0f}%",
-                     xy=(x_pct, y_pct), xytext=(x_pct + 6, y_pct - 6),
-                     fontsize=10, color=color)
-
-    ax0.set_xlim(0, 100)
-    ax0.set_ylim(0, 100)
-    ax0.set_xlabel("Flights ranked by predicted forcing (cumulative %)")
-    ax0.set_ylabel("Positive contrail forcing captured (cumulative %)")
-    ax0.legend(loc="lower right", frameon=False, fontsize=10)
-    ax0.set_title("Concentration of contrail forcing in predicted top flights")
-    ax0.grid(alpha=0.25)
-
-    # (right) Permutation importance
-    ax1 = fig.add_subplot(gs[0, 1])
-    bars = ax1.barh(perm["pretty"], perm["importance_mean"],
-                    xerr=perm["importance_std"],
-                    color="#3a7ca5", ecolor="#777777")
-    # Highlight the four "headline rule" features in a different color
-    headline = {"total_flight_distance_km", "OriginLat",
-                "night_score_full_0", "aircraft_type_icao"}
-    for bar, f in zip(bars, perm["feature"]):
-        if f in headline:
-            bar.set_color("#d1495b")
-    ax1.set_xlabel("Permutation importance (Δ R² when shuffled)")
-    ax1.set_title("Feature importance — tuned LEAN+AC")
-    ax1.grid(alpha=0.25, axis="x")
-
-    fig.suptitle(
-        "Fig. 3c — Predictive concentration and feature importance "
-        "(N=17.5M test flights, 2019+2021)",
-        fontsize=11,
-    )
-    plt.savefig(OUT / "fig3c.png", dpi=200, bbox_inches="tight")
-    plt.savefig(OUT / "fig3c.pdf", bbox_inches="tight")
-    plt.savefig(OUT / "fig3c.eps", bbox_inches="tight")
-    plt.close()
-    print(f"\nWrote fig3c.{{png,pdf,eps}}")
+    build_fig3c(perm, co2_km, yp_full)
 
     # Save a JSON manifest of the canonical model for the paper
     manifest = dict(
@@ -234,11 +261,10 @@ def main():
         json.dump(manifest, f, indent=2, default=str)
 
     print(f"\nTotal: {time.time()-t0:.0f}s")
-    # Mirror to Dropbox Plots/Figure 3/
-    import subprocess
-    sync = Path(__file__).resolve().parent.parent / "figures" / "sync_to_dropbox.py"
-    subprocess.run([sys.executable, str(sync)])
 
 
 if __name__ == "__main__":
-    main()
+    if "--plot-only" in sys.argv:
+        replot()
+    else:
+        main()
