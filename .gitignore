@@ -29,3 +29,7 @@ figures/*.log
 # Whitelist the small experiment outputs we DO want tracked
 !experiments/outputs/*.csv
 !experiments/outputs/*.png
+
+# webtool model exports (rebuilt by webtool/export_assets.py; deployed copy lives in the website repo)
+webtool/assets/*.ubj
+webtool/assets/land_union.wkb

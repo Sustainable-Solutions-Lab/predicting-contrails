@@ -1,0 +1,33 @@
+{
+  "params": {
+    "max_depth": 8,
+    "learning_rate": 0.1,
+    "min_child_weight": 50,
+    "subsample": 0.85,
+    "colsample_bytree": 1.0,
+    "n_estimators": 120,
+    "tree_method": "hist",
+    "enable_categorical": true,
+    "random_state": 42
+  },
+  "train_rows": 8000000,
+  "test_rows": 4000000,
+  "metrics": {
+    "canonical": {
+      "top10_capture": 0.6135251259174866,
+      "top10_recall": 0.487155,
+      "top5_capture": 0.4210029508031086,
+      "top5_recall": 0.387685
+    },
+    "distilled": {
+      "top10_capture": 0.5609151427695857,
+      "top10_recall": 0.451345,
+      "top5_capture": 0.36900664361348506,
+      "top5_recall": 0.34258
+    }
+  },
+  "model_mb": {
+    "model_canonical.ubj": 57.3,
+    "model_web.ubj": 4.0
+  }
+}
