@@ -47,11 +47,15 @@ from feature_pruning import DROPBOX_PLOTS, OUT as EXP_OUT  # noqa: E402
 OUT = DROPBOX_PLOTS
 
 POOL_CACHE = EXP_OUT / "_pool_cache_all.parquet"
-SAMPLE = 5_000_000          # rows to use (full 52M is overkill for smooth curves)
+SAMPLE = None               # None = ALL flights, so the cumulative axes show
+                            # true dataset totals (a 5M sample understated
+                            # x and y by ~10.5x); ~87 billion km total
 DIST_UNIT_SCALE = 1e9       # display distance in billions of km
-FORC_UNIT_SCALE = 1e6       # display forcing in millions of GJ
+FORC_UNIT_SCALE = 1e9       # display forcing in EJ (1 EJ = 1e9 GJ) — full-
+                            # dataset totals in millions-of-GJ forced a
+                            # floating "1e6" axis offset in half the panels
 DIST_UNIT_LABEL = "billions of km"
-FORC_UNIT_LABEL = "millions of GJ"
+FORC_UNIT_LABEL = "EJ"
 RANDOM_SEED = 42
 
 # AGWP-100 of contrail RF (Lee 2021), Earth area, year — recovers J from CO₂_km
@@ -156,15 +160,38 @@ def add_metadata(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def lorenz_curve(forcing_GJ: np.ndarray, distance_km: np.ndarray):
-    """Sort flights descending by per-flight forcing, return cumulative
-    forcing and cumulative distance in display units, plus peak index
-    and percent of subset flights up to the peak."""
+    """Sort flights descending by per-flight forcing and return the
+    cumulative curve plus TWO ranks:
+
+      peak_idx  — argmax of the cumulative curve (≈ all warming flights;
+                  used only for label placement along the plateau);
+      cross_idx — where the RISING curve first reaches the final net
+                  total, i.e. the smallest set of worst flights whose
+                  warming equals 100% of the subset's net forcing. This
+                  is the number the "% of flights" annotation reports.
+                  (An earlier draft wrongly annotated peak_idx — the
+                  share of flights with ANY positive forcing — which
+                  overstated the concentration figure, e.g. 19.8%
+                  instead of 6.4% for all flights.)
+
+    cross_idx is None when the subset's net forcing is <= 0 (e.g.
+    entirely-daytime flights), where the metric is undefined.
+    """
     order = np.argsort(forcing_GJ)[::-1]
-    cum_forc = np.cumsum(forcing_GJ[order]) / FORC_UNIT_SCALE
+    f_sorted = forcing_GJ[order]
+    cum_forc = np.cumsum(f_sorted) / FORC_UNIT_SCALE
     cum_dist = np.cumsum(distance_km[order]) / DIST_UNIT_SCALE
     peak_idx = int(np.argmax(cum_forc))
-    peak_pct = 100.0 * (peak_idx + 1) / len(forcing_GJ)
-    return cum_forc, cum_dist, peak_idx, peak_pct
+    n_pos = int((f_sorted > 0).sum())
+    net = cum_forc[-1]
+    if net <= 0 or n_pos == 0:
+        cross_idx = None
+        cross_pct = None
+    else:
+        cross_idx = min(int(np.searchsorted(cum_forc[:n_pos], net, side="left")),
+                        n_pos - 1)
+        cross_pct = 100.0 * (cross_idx + 1) / len(forcing_GJ)
+    return cum_forc, cum_dist, peak_idx, cross_idx, cross_pct
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -191,11 +218,11 @@ def panel_curves(ax, df, group_col, group_specs, title):
         sub = df[df[group_col] == value]
         if len(sub) == 0:
             continue
-        cf, cd, peak, pct = lorenz_curve(
+        cf, cd, peak, cross, pct = lorenz_curve(
             sub["forcing_GJ"].to_numpy(),
             sub["total_flight_distance_km"].to_numpy(),
         )
-        curves.append(dict(cf=cf, cd=cd, peak=peak, pct=pct,
+        curves.append(dict(cf=cf, cd=cd, peak=peak, cross=cross, pct=pct,
                            color=color, label=label, ls=ls))
 
     ymax = max(c["cf"].max() for c in curves)
@@ -210,19 +237,44 @@ def panel_curves(ax, df, group_col, group_specs, title):
                 label=c["label"], solid_capstyle="round")
         # series label above the plateau, ~2/3 of the way to the end;
         # curves hugging the x-axis get extra lift so the label clears
-        # the peak %-annotation (which flips above the marker for them)
-        lx = cd[peak] + 0.62 * (cd[-1] - cd[peak])
-        lx = min(max(lx, 0.20 * xmax), 0.90 * xmax)
+        # the peak %-annotation (which flips above the marker for them).
+        # Anchor at the PLATEAU START (first rank reaching 98.5% of max)
+        # rather than argmax — float64 cumsum stalls make argmax land
+        # early on some curves, dragging labels into the annotations.
+        ps = int(np.searchsorted(cf[:peak + 1], 0.985 * cf.max()))
+        lx = cd[ps] + 0.75 * (cd[-1] - cd[ps])
+        lx = min(max(lx, 0.20 * xmax), 0.92 * xmax)
         ly = cf[min(int(np.searchsorted(cd, lx)), len(cf) - 1)]
         lift = 0.055 * ymax if cf[peak] < 0.15 * ymax else 0.03 * ymax
         ax.text(lx, max(ly, 0) + lift, c["label"], color=c["color"],
                 fontsize=10.5, weight="bold", ha="center", va="bottom")
-        # peak marker + annotation
-        ax.scatter([cd[peak]], [cf[peak]], facecolor="white",
-                   edgecolor=c["color"], s=22, linewidth=1.1, zorder=10)
-        txt = (f"{c['pct']:.1f}% of flights\n100% of net forcing"
-               if i == tallest else f"{c['pct']:.1f}%")
-        annotate_pct(ax, cd[peak], cf[peak], txt, ymax=ymax)
+        # Marker at the CROSSING: the rank where the rising curve first
+        # reaches the subset's final net forcing. Skipped when net <= 0
+        # (metric undefined, e.g. entirely-daytime flights).
+        if c["cross"] is not None:
+            cross = c["cross"]
+            ax.scatter([cd[cross]], [cf[cross]], facecolor="white",
+                       edgecolor=c["color"], s=22, linewidth=1.1, zorder=10)
+            if i == tallest:
+                # Text sits down-right of the marker with a thin leader
+                # line — in the pocket between the tallest curve's
+                # rising limb and the runner-up's plateau, the one
+                # region that is empty in every panel. (Above-left
+                # spills over the y-axis; below-right collides with the
+                # runner-up's series label.)
+                ax.annotate(f"{c['pct']:.1f}% of flights\n"
+                            "100% of net forcing",
+                            xy=(cd[cross], cf[cross]),
+                            xytext=(cd[cross] + 0.22 * xmax,
+                                    cf[cross] - 0.28 * ymax),
+                            fontsize=8.6, color="#222",
+                            ha="left", va="top",
+                            arrowprops=dict(arrowstyle="-", lw=0.7,
+                                            color="#999999",
+                                            shrinkA=2, shrinkB=3))
+            else:
+                annotate_pct(ax, cd[cross], cf[cross], f"{c['pct']:.1f}%",
+                             ymax=ymax)
 
     ax.set_title(title, fontsize=12, weight="bold")
 
@@ -237,7 +289,12 @@ def panel_a_all_flights(ax, df):
     cum_forc = np.cumsum(f_sorted) / FORC_UNIT_SCALE
     cum_dist = np.cumsum(d_sorted) / DIST_UNIT_SCALE
     peak_idx = int(np.argmax(cum_forc))
-    peak_pct = 100.0 * (peak_idx + 1) / len(f_gj)
+    # Crossing: smallest set of worst flights whose warming equals the
+    # final net total (see lorenz_curve docstring)
+    n_pos = int((f_sorted > 0).sum())
+    cross_idx = min(int(np.searchsorted(cum_forc[:n_pos], cum_forc[-1],
+                                        side="left")), n_pos - 1)
+    cross_pct = 100.0 * (cross_idx + 1) / len(f_gj)
 
     # Split into warming / neutral / cooling segments by sign of per-flight forcing
     threshold = max(1e-6, np.abs(f_sorted).max() * 1e-5)
@@ -276,13 +333,15 @@ def panel_a_all_flights(ax, df):
             color=COOL_BLUE, fontsize=11, weight="bold",
             ha="right", va="bottom")
 
-    ax.scatter([cum_dist[peak_idx]], [cum_forc[peak_idx]],
+    # Marker where the rising curve first reaches the net total (dashed
+    # line) — these worst flights alone account for 100% of net forcing.
+    ax.scatter([cum_dist[cross_idx]], [cum_forc[cross_idx]],
                facecolor="white", edgecolor=RED, s=24, linewidth=1.2,
                zorder=10)
-    ax.annotate(f"{peak_pct:.1f}% of flights",
-                xy=(cum_dist[peak_idx], cum_forc[peak_idx]),
-                xytext=(0.5, -0.8), textcoords="offset fontsize",
-                fontsize=9, color="#222", ha="left", va="top")
+    ax.annotate(f"{cross_pct:.1f}% of flights",
+                xy=(cum_dist[cross_idx], cum_forc[cross_idx]),
+                xytext=(0.6, 0.3), textcoords="offset fontsize",
+                fontsize=9, color="#222", ha="left", va="bottom")
 
     ax.set_title("All flights", fontsize=12, weight="bold")
 

@@ -155,15 +155,16 @@ def main():
         "#ffffbf", "#fee08b", "#fdae61", "#f46d43", "#d53e4f", "#9e0142",
     ]
     cmap = LinearSegmentedColormap.from_list("rf_spectral_r", hex_spectral, N=256)
-    cmap.set_bad(alpha=0)
+    # Opaque white for no-data cells: EPS has no transparency, so alpha=0
+    # rendered as BLACK when the .eps was placed in Illustrator.
+    cmap.set_bad("#ffffff")
 
-    # Plot in units of 10^8 J so the colorbar ticks are plain numbers
-    # instead of matplotlib's floating "1e8" offset text.
-    mean_rf = mean_rf / 1e8
+    # GJ / passenger-km on a FIXED 0-1.0 scale — identical to the Fig 1c
+    # matrix (fig1c_matrix.py VMAX_GJ), so the two panels share one
+    # colorbar in the assembled figure.
+    mean_rf = mean_rf / 1e9
 
-    positive = mean_rf[np.isfinite(mean_rf) & (mean_rf > 0)]
-    vmax = np.nanpercentile(positive, 95) if positive.size else 1.0
-    norm = colors.Normalize(vmin=0, vmax=vmax, clip=True)
+    norm = colors.Normalize(vmin=0, vmax=1.0, clip=True)
 
     # Use imshow with bicubic interpolation for smooth cell-to-cell gradient.
     # Mask the NaN regions so the basemap shows through as white.
@@ -185,7 +186,7 @@ def main():
         print(f"  warning: coastline file not at {COASTLINE_PATH}")
 
     cbar = plt.colorbar(im, ax=ax, extend="max", shrink=0.7, pad=0.02)
-    cbar.set_label("Mean contrail energy forcing\n(10$^8$ J / passenger·km)",
+    cbar.set_label("Mean radiative forcing  (GJ / passenger·km)",
                    fontsize=10)
     cbar.ax.tick_params(labelsize=9)
     ax.set_xlim(-180, 180)
