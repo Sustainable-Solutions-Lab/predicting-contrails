@@ -116,36 +116,23 @@ def add_metadata(df: pd.DataFrame) -> pd.DataFrame:
         categories=["short", "long"],
     )
 
-    # Night class — from night_score_BOOL_0, the plain fraction of
-    # great-circle waypoints with the sun below the horizon. (An earlier
-    # draft used night_score_FULL_0, which is sun-ELEVATION-weighted:
-    # 100*(1-mean(sin(sun_alt))). On that score even an all-daylight
-    # flight reads 10-30 unless the sun is near zenith throughout, so
-    # "entirely daytime" collapsed to 0.13% of flights.)
-    nb = df["night_score_bool_0"].astype(np.float64)
-
-    # Sun up at departure? Vectorized NOAA-style solar position at the
-    # origin airport at departure time (approximation, fine for binning).
+    # Departure quarter of day — local SOLAR time at the origin
+    # (UTC departure hour + lon/15; true clock timezones aren't in the
+    # pool, and solar time is the physically relevant clock anyway).
+    # Quarters chosen because forcing ramps monotonically with departure
+    # hour: morning contrails live out their lives in daylight (SW
+    # offset ≈ LW trapping), afternoon/evening contrails persist into
+    # the night and warm unopposed.
     h_angle = np.arctan2(df["start_hour_sin"].astype(np.float64),
                          df["start_hour_cos"].astype(np.float64))
     h_angle = np.where(h_angle < 0, h_angle + 2 * np.pi, h_angle)
     utc_hour = h_angle * 24 / (2 * np.pi)
-    decl = np.radians(-23.44) * np.cos(2 * np.pi * (df["doy"] + 10) / 365)
     lst = (utc_hour + df["OriginLon"] / 15.0) % 24
-    hra = np.radians(15.0 * (lst - 12.0))
-    lat = np.radians(df["OriginLat"].astype(np.float64))
-    sin_alt = (np.sin(lat) * np.sin(decl)
-               + np.cos(lat) * np.cos(decl) * np.cos(hra))
-    sun_up_dep = sin_alt > 0
-
-    night_class = np.where(
-        nb >= 99.9, "entire_night",
-        np.where(nb <= 0.1, "entire_day",
-        np.where(sun_up_dep, "day_dep", "night_dep"))
-    )
-    df["night_class"] = pd.Categorical(
-        night_class,
-        categories=["entire_night", "night_dep", "day_dep", "entire_day"],
+    df["dep_quarter"] = pd.Categorical(
+        np.where(lst < 6, "night",
+        np.where(lst < 12, "morning",
+        np.where(lst < 18, "afternoon", "evening"))),
+        categories=["afternoon", "evening", "morning", "night"],
     )
 
     # Origin region — simple lat/lon box (4 named + "Other")
@@ -217,10 +204,12 @@ def lorenz_curve(forcing_GJ: np.ndarray, distance_km: np.ndarray):
 # Panel renderers
 # ──────────────────────────────────────────────────────────────────────────
 
-def annotate_pct(ax, x, y, text, *, ymax, fontsize=8.6):
+def annotate_pct(ax, x, y, text, *, ymax, fontsize=8.6, force=None):
     """Peak %-annotation: below-right of the marker when there is room,
-    above-right when the curve sits too low for text beneath it."""
-    if y > 0.20 * ymax:
+    above-right when the curve sits too low for text beneath it.
+    force="above"/"below" overrides the heuristic."""
+    below = y > 0.22 * ymax if force is None else force == "below"
+    if below:
         ax.annotate(text, xy=(x, y), xytext=(0.5, -0.4),
                     textcoords="offset fontsize",
                     fontsize=fontsize, color="#222", ha="left", va="top")
@@ -231,7 +220,7 @@ def annotate_pct(ax, x, y, text, *, ymax, fontsize=8.6):
 
 
 def panel_curves(ax, df, group_col, group_specs, title, label_overrides=None,
-                 annot_dyfrac=0.28):
+                 annot_dyfrac=0.28, annot_side=None):
     """group_specs is a list of (group_value, color, label, linestyle).
 
     label_overrides: optional {group_value: (xfrac, side)} placing that
@@ -240,6 +229,7 @@ def panel_curves(ax, df, group_col, group_specs, title, label_overrides=None,
     above-plateau placement (e.g. panel c after the day/night reclass).
     """
     label_overrides = label_overrides or {}
+    annot_side = annot_side or {}
     curves = []
     for value, color, label, ls in group_specs:
         sub = df[df[group_col] == value]
@@ -310,7 +300,7 @@ def panel_curves(ax, df, group_col, group_specs, title, label_overrides=None,
                                             shrinkA=2, shrinkB=3))
             else:
                 annotate_pct(ax, cd[cross], cf[cross], f"{c['pct']:.1f}%",
-                             ymax=ymax)
+                             ymax=ymax, force=annot_side.get(c["value"]))
 
     ax.set_title(title, fontsize=12, weight="bold")
 
@@ -393,7 +383,7 @@ def main():
         "OriginLat", "DestinationLat",
         "OriginLon_sin", "OriginLon_cos",
         "day_sin", "day_cos",
-        "night_score_bool_0",
+        
         "start_hour_sin", "start_hour_cos",
         "total_flight_distance_km", "contrail_CO2_km",
         "year",
@@ -420,20 +410,16 @@ def main():
         ("long",  RED, "≥2000 km", "--"),
     ], "By distance")
 
-    panel_curves(axes[1, 0], df, "night_class", [
-        ("night_dep",    RED,         "Nighttime departure", "-"),
-        ("entire_night", ORANGE,      "Entirely nighttime",  "-"),
-        ("day_dep",      LIGHT_GREEN, "Daytime departure",   "-"),
-        ("entire_day",   TEAL,        "Entirely daytime",    "-"),
-    ], "By time of day", label_overrides={
-        # Plateaus sit too close for the default above-plateau spots;
-        # xfrac > 1 floats the label right of that curve's end, in the
-        # empty zone left by the shorter curves.
-        "entire_night": (0.65, "above"),
-        "day_dep":      (1.45, "below"),
-        "night_dep":    (1.30, "below"),
-        "entire_day":   (0.62, "above"),
-    }, annot_dyfrac=0.20)
+    panel_curves(axes[1, 0], df, "dep_quarter", [
+        ("afternoon", RED,         "Afternoon departure (12–18h)", "-"),
+        ("evening",   ORANGE,      "Evening departure (18–24h)",   "-"),
+        ("morning",   LIGHT_GREEN, "Morning departure (6–12h)",    "-"),
+        ("night",     TEAL,        "Night departure (0–6h)",       "-"),
+    ], "By local time of departure", label_overrides={
+        "night": (0.80, "below"),   # clear of the small %-annotations
+    }, annot_side={
+        "night": "below",           # morning's % sits just above it
+    })
 
     panel_curves(axes[1, 1], df, "season", [
         ("Winter", RED,         "Winter", "-"),
