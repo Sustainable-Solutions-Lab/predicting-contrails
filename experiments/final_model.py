@@ -125,16 +125,18 @@ def build_fig3c(perm: pd.DataFrame, co2_km: np.ndarray, yp_full: np.ndarray):
     ax0.set_title("Concentration of contrail forcing in predicted top flights")
     ax0.grid(alpha=0.25)
 
-    # (right) Permutation importance
+    # (right) Permutation importance — GROUPED: each cyclic sin/cos pair
+    # is shuffled jointly and shown as one bar, so a variable's
+    # importance isn't diluted across its two encoding columns.
     ax1 = fig.add_subplot(gs[0, 1])
     bars = ax1.barh(perm["pretty"], perm["importance_mean"],
                     xerr=perm["importance_std"],
                     color="#3a7ca5", ecolor="#777777")
-    # Highlight the four "headline rule" features in a different color
-    headline = {"total_flight_distance_km", "OriginLat",
-                "night_score_full_0", "aircraft_type_icao"}
-    for bar, f in zip(bars, perm["feature"]):
-        if f in headline:
+    # Highlight the four "headline rule" variables in a different color
+    headline = {"Flight distance", "Origin latitude",
+                "Night fraction (sun-weighted)", "Aircraft type (ICAO)"}
+    for bar, name in zip(bars, perm["pretty"]):
+        if name in headline:
             bar.set_color("#d1495b")
     ax1.set_xlabel("Permutation importance (Δ R² when shuffled)")
     ax1.set_title("Feature importance — tuned LEAN+AC")
@@ -154,9 +156,13 @@ def replot():
     bundle = joblib.load(MODEL_PATH)
     model = bundle["model"]
 
-    perm = pd.read_csv(OUT / "final_permutation_importance.csv")
+    grouped = OUT / "final_permutation_importance_grouped.csv"
+    if grouped.exists():
+        perm = pd.read_csv(grouped).rename(columns={"group": "pretty"})
+    else:
+        perm = pd.read_csv(OUT / "final_permutation_importance.csv")
+        perm["pretty"] = perm["feature"].map(PRETTY)
     perm = perm.sort_values("importance_mean", ascending=True)
-    perm["pretty"] = perm["feature"].map(PRETTY)
 
     cols_keep = LEAN_AC_FEATS + [TARGET, "contrail_CO2_km", "year"]
     pool = pd.read_parquet(CACHE, columns=cols_keep)
