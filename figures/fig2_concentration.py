@@ -116,13 +116,32 @@ def add_metadata(df: pd.DataFrame) -> pd.DataFrame:
         categories=["short", "long"],
     )
 
-    # Night class — entirely classified from night_score_full_0
-    # (% of great-circle waypoints below the horizon, sun-alt-weighted).
-    ns = df["night_score_full_0"].astype(np.float64)
+    # Night class — from night_score_BOOL_0, the plain fraction of
+    # great-circle waypoints with the sun below the horizon. (An earlier
+    # draft used night_score_FULL_0, which is sun-ELEVATION-weighted:
+    # 100*(1-mean(sin(sun_alt))). On that score even an all-daylight
+    # flight reads 10-30 unless the sun is near zenith throughout, so
+    # "entirely daytime" collapsed to 0.13% of flights.)
+    nb = df["night_score_bool_0"].astype(np.float64)
+
+    # Sun up at departure? Vectorized NOAA-style solar position at the
+    # origin airport at departure time (approximation, fine for binning).
+    h_angle = np.arctan2(df["start_hour_sin"].astype(np.float64),
+                         df["start_hour_cos"].astype(np.float64))
+    h_angle = np.where(h_angle < 0, h_angle + 2 * np.pi, h_angle)
+    utc_hour = h_angle * 24 / (2 * np.pi)
+    decl = np.radians(-23.44) * np.cos(2 * np.pi * (df["doy"] + 10) / 365)
+    lst = (utc_hour + df["OriginLon"] / 15.0) % 24
+    hra = np.radians(15.0 * (lst - 12.0))
+    lat = np.radians(df["OriginLat"].astype(np.float64))
+    sin_alt = (np.sin(lat) * np.sin(decl)
+               + np.cos(lat) * np.cos(decl) * np.cos(hra))
+    sun_up_dep = sin_alt > 0
+
     night_class = np.where(
-        ns >= 99, "entire_night",
-        np.where(ns > 50, "night_dep",
-        np.where(ns > 1, "day_dep", "entire_day"))
+        nb >= 99.9, "entire_night",
+        np.where(nb <= 0.1, "entire_day",
+        np.where(sun_up_dep, "day_dep", "night_dep"))
     )
     df["night_class"] = pd.Categorical(
         night_class,
@@ -211,8 +230,16 @@ def annotate_pct(ax, x, y, text, *, ymax, fontsize=8.6):
                     fontsize=fontsize, color="#222", ha="left", va="bottom")
 
 
-def panel_curves(ax, df, group_col, group_specs, title):
-    """group_specs is a list of (group_value, color, label, linestyle)."""
+def panel_curves(ax, df, group_col, group_specs, title, label_overrides=None,
+                 annot_dyfrac=0.28):
+    """group_specs is a list of (group_value, color, label, linestyle).
+
+    label_overrides: optional {group_value: (xfrac, side)} placing that
+    curve's series label at xfrac of its own x-extent, above or below
+    the curve — for panels whose plateaus are too close for the default
+    above-plateau placement (e.g. panel c after the day/night reclass).
+    """
+    label_overrides = label_overrides or {}
     curves = []
     for value, color, label, ls in group_specs:
         sub = df[df[group_col] == value]
@@ -223,7 +250,7 @@ def panel_curves(ax, df, group_col, group_specs, title):
             sub["total_flight_distance_km"].to_numpy(),
         )
         curves.append(dict(cf=cf, cd=cd, peak=peak, cross=cross, pct=pct,
-                           color=color, label=label, ls=ls))
+                           color=color, label=label, ls=ls, value=value))
 
     ymax = max(c["cf"].max() for c in curves)
     xmax = max(c["cd"][-1] for c in curves)
@@ -242,12 +269,21 @@ def panel_curves(ax, df, group_col, group_specs, title):
         # rather than argmax — float64 cumsum stalls make argmax land
         # early on some curves, dragging labels into the annotations.
         ps = int(np.searchsorted(cf[:peak + 1], 0.985 * cf.max()))
-        lx = cd[ps] + 0.75 * (cd[-1] - cd[ps])
-        lx = min(max(lx, 0.20 * xmax), 0.92 * xmax)
+        if c["value"] in label_overrides:
+            xfrac, side = label_overrides[c["value"]]
+            lx = xfrac * cd[-1]
+        else:
+            xfrac, side = None, "above"
+            lx = cd[ps] + 0.75 * (cd[-1] - cd[ps])
+            lx = min(max(lx, 0.20 * xmax), 0.92 * xmax)
         ly = cf[min(int(np.searchsorted(cd, lx)), len(cf) - 1)]
         lift = 0.055 * ymax if cf[peak] < 0.15 * ymax else 0.03 * ymax
-        ax.text(lx, max(ly, 0) + lift, c["label"], color=c["color"],
-                fontsize=10.5, weight="bold", ha="center", va="bottom")
+        if side == "below":
+            ax.text(lx, max(ly, 0) - lift, c["label"], color=c["color"],
+                    fontsize=10.5, weight="bold", ha="center", va="top")
+        else:
+            ax.text(lx, max(ly, 0) + lift, c["label"], color=c["color"],
+                    fontsize=10.5, weight="bold", ha="center", va="bottom")
         # Marker at the CROSSING: the rank where the rising curve first
         # reaches the subset's final net forcing. Skipped when net <= 0
         # (metric undefined, e.g. entirely-daytime flights).
@@ -266,7 +302,7 @@ def panel_curves(ax, df, group_col, group_specs, title):
                             "100% of net forcing",
                             xy=(cd[cross], cf[cross]),
                             xytext=(cd[cross] + 0.22 * xmax,
-                                    cf[cross] - 0.28 * ymax),
+                                    cf[cross] - annot_dyfrac * ymax),
                             fontsize=8.6, color="#222",
                             ha="left", va="top",
                             arrowprops=dict(arrowstyle="-", lw=0.7,
@@ -357,7 +393,8 @@ def main():
         "OriginLat", "DestinationLat",
         "OriginLon_sin", "OriginLon_cos",
         "day_sin", "day_cos",
-        "night_score_full_0",
+        "night_score_bool_0",
+        "start_hour_sin", "start_hour_cos",
         "total_flight_distance_km", "contrail_CO2_km",
         "year",
     ]
@@ -388,7 +425,15 @@ def main():
         ("entire_night", ORANGE,      "Entirely nighttime",  "-"),
         ("day_dep",      LIGHT_GREEN, "Daytime departure",   "-"),
         ("entire_day",   TEAL,        "Entirely daytime",    "-"),
-    ], "By time of day")
+    ], "By time of day", label_overrides={
+        # Plateaus sit too close for the default above-plateau spots;
+        # xfrac > 1 floats the label right of that curve's end, in the
+        # empty zone left by the shorter curves.
+        "entire_night": (0.65, "above"),
+        "day_dep":      (1.45, "below"),
+        "night_dep":    (1.30, "below"),
+        "entire_day":   (0.62, "above"),
+    }, annot_dyfrac=0.20)
 
     panel_curves(axes[1, 1], df, "season", [
         ("Winter", RED,         "Winter", "-"),
