@@ -164,13 +164,18 @@ def build_fig3(perm: pd.DataFrame, co2_km: np.ndarray, yp_full: np.ndarray,
     # is shuffled jointly and shown as one bar, so a variable's
     # importance isn't diluted across its two encoding columns.
     ax1 = fig.add_subplot(gs[0, 2])
-    short = perm["pretty"].str.replace(" (sun-weighted)", "", regex=False)
+    # "Night fraction (sun-weighted)" is, physically, the complement of
+    # route-averaged TOA insolation (mean max(0, cos solar zenith)) —
+    # label it by the physical variable; importance is invariant to the
+    # linear flip.
+    short = perm["pretty"].str.replace("Night fraction (sun-weighted)",
+                                       "Route-mean insolation", regex=False)
     bars = ax1.barh(short, perm["importance_mean"],
                     xerr=perm["importance_std"],
                     color="#3a7ca5", ecolor="#777777")
     # Highlight the four "headline rule" variables in a different color
     headline = {"Flight distance", "Origin latitude",
-                "Night fraction", "Aircraft type (ICAO)"}
+                "Route-mean insolation", "Aircraft type (ICAO)"}
     for bar, name in zip(bars, short):
         if name in headline:
             bar.set_color("#d1495b")
