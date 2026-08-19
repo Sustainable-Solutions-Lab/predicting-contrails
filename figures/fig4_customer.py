@@ -146,7 +146,7 @@ def window_grid(merged: pd.DataFrame, db_acc_by_route: dict) -> pd.DataFrame:
     n = len(merged)
     total = merged["co2_eq_tons"].sum()
     rows = []
-    for ranker, keycol in [("model", "pred_log"), ("oracle", "co2_eq_tons")]:
+    for ranker, keycol in [("model", "pred_log"), ("oracle", "actual_per_km")]:
         ordered = merged.sort_values(keycol, ascending=False).reset_index(drop=True)
         n_max = max(1, int(round(n * max(THRESHOLDS_PCT) / 100)))
         top = ordered.head(n_max)
@@ -286,7 +286,7 @@ def reduction_surface(merged: pd.DataFrame, db_acc_by_route: dict,
     """
     n = len(merged)
     total = merged["co2_eq_tons"].sum()
-    keycol = "pred_log" if ranker == "model" else "co2_eq_tons"
+    keycol = "pred_log" if ranker == "model" else "actual_per_km"
     ordered = merged.sort_values(keycol, ascending=False).reset_index(drop=True)
     n_max = max(1, int(round(n * CONTOUR_THRESHOLDS.max() / 100)))
     top = ordered.head(n_max)
@@ -419,9 +419,14 @@ def main():
         cust_log = cust.loader()
         merged = cust_log.merge(
             db[["flight_id", "origin_airport", "destination_airport",
-                "first_waypoint_time", "pred_log"]],
+                "first_waypoint_time", "pred_log",
+                "total_flight_distance_km"]],
             on="flight_id", how="inner",
         ).dropna(subset=["co2_eq_tons", "first_waypoint_time"])
+        # actual per-km forcing: the oracle ranks on this so that both
+        # columns define "worst" on the same per-km basis as the model
+        merged["actual_per_km"] = (merged["co2_eq_tons"]
+                                   / merged["total_flight_distance_km"])
         total = merged["co2_eq_tons"].sum()
         print(f"  {len(merged):,} flights matched, {total:.0f} tCO2e")
 
