@@ -4,9 +4,11 @@ realistic alternative-flight replacement.
 
 For each customer's predicted top-K% flights, instead of pretending the
 flight didn't happen (the prior version's upper-bound assumption), we
-identify the **nearest below-threshold same-route alternative in the
-2021 corpus** and substitute its ACTUAL contrail forcing into the
-customer total. The reduction is then the customer's real footprint
+identify the best below-threshold same-route alternative in the 2021
+corpus within the rebooking window — lowest PREDICTED forcing for the
+model actor, lowest ACTUAL for the perfect-foresight actor (who also
+declines swaps that would not help) — and substitute its ACTUAL
+contrail forcing into the customer total. The reduction is then the customer's real footprint
 under a realistic shift-rather-than-skip rule.
 
 Both the model and oracle bars use the same replacement procedure;
@@ -110,34 +112,36 @@ CUSTOMERS = [
 # Replacement procedure
 # ──────────────────────────────────────────────────────────────────────────
 
-def find_nearest_alternative(
-    flight_row, db_acc_by_route: dict[tuple, pd.DataFrame],
-) -> tuple[float, float]:
-    """For one flight (with origin_airport, destination_airport,
-    first_waypoint_time), look up acceptable same-route alternatives and
-    return (replacement_co2_eq_tons, time_delta_hours). If none exist,
-    return (NaN, NaN) — caller handles fallback (keep original flight)."""
+def find_candidates(flight_row, db_acc_by_route: dict[tuple, pd.DataFrame]):
+    """All acceptable same-route alternatives for one flight: arrays of
+    (|time delta| hours, actual forcing in tons, predicted signed-log
+    per-km forcing). Empty arrays if the route has no acceptable
+    alternatives."""
     key = (flight_row.origin_airport, flight_row.destination_airport)
     cands = db_acc_by_route.get(key)
     if cands is None or len(cands) == 0:
-        return (np.nan, np.nan)
-    deltas = (
-        cands["first_waypoint_time"] - flight_row.first_waypoint_time
-    ).dt.total_seconds() / 3600
-    deltas_abs = deltas.abs()
-    idx = deltas_abs.idxmin()
-    alt = cands.loc[idx]
-    # Convert to tons: contrail_CO2_km is in kg/km, distance in km, /1000 → tons
-    alt_tons = alt["contrail_CO2_km"] * alt["total_flight_distance_km"] / 1000.0
-    return float(alt_tons), float(deltas_abs.loc[idx])
+        z = np.empty(0)
+        return z, z, z
+    delta_h = np.abs(
+        (cands["first_waypoint_time"] - flight_row.first_waypoint_time)
+        .dt.total_seconds().to_numpy() / 3600.0)
+    actual_tons = (cands["contrail_CO2_km"]
+                   * cands["total_flight_distance_km"]).to_numpy() / 1000.0
+    return delta_h, actual_tons, cands["pred_log"].to_numpy()
 
 
 def window_grid(merged: pd.DataFrame, db_acc_by_route: dict) -> pd.DataFrame:
     """Post-avoidance totals for every (ranker, threshold, window).
 
-    One nearest-alternative lookup per flagged flight serves all
-    windows: the nearest candidate minimizes |dt|, so it is within
-    +/-W iff |dt| <= W, and no candidate is otherwise.
+    Replacement choice models a rational actor, not nearest-in-time:
+      model  — swap to the alternative with the LOWEST PREDICTED forcing
+               within the window (same route -> same distance, so the
+               per-km prediction ranks totals exactly); realized forcing
+               of that choice counts, so honest backfires remain
+               possible when the prediction is wrong.
+      oracle — swap to the LOWEST ACTUAL forcing alternative within the
+               window, and only if it beats the flagged flight; the
+               perfect-foresight bars therefore can never exceed 100%.
     """
     n = len(merged)
     total = merged["co2_eq_tons"].sum()
@@ -146,19 +150,33 @@ def window_grid(merged: pd.DataFrame, db_acc_by_route: dict) -> pd.DataFrame:
         ordered = merged.sort_values(keycol, ascending=False).reset_index(drop=True)
         n_max = max(1, int(round(n * max(THRESHOLDS_PCT) / 100)))
         top = ordered.head(n_max)
-        alt = [find_nearest_alternative(r, db_acc_by_route)
-               for r in top.itertuples()]
-        alt_tons = np.array([a for a, _ in alt])
-        delta_h = np.array([d for _, d in alt])
+        cands = [find_candidates(r, db_acc_by_route) for r in top.itertuples()]
         orig_tons = top["co2_eq_tons"].to_numpy()
+
+        # replacement_tons[i, wi]: NaN = keep original
+        repl_tbl = np.full((len(top), len(WINDOWS_H)), np.nan)
+        for i, (dh, actual, pred) in enumerate(cands):
+            if len(dh) == 0:
+                continue
+            for wi, w in enumerate(WINDOWS_H):
+                m = dh <= w
+                if not m.any():
+                    continue
+                if ranker == "model":
+                    repl_tbl[i, wi] = actual[m][np.argmin(pred[m])]
+                else:
+                    best = actual[m].min()
+                    if best < orig_tons[i]:
+                        repl_tbl[i, wi] = best
 
         for k in THRESHOLDS_PCT:
             n_flag = max(1, int(round(n * k / 100)))
-            at, dh, ot = alt_tons[:n_flag], delta_h[:n_flag], orig_tons[:n_flag]
+            ot = orig_tons[:n_flag]
             kept_total = total - ot.sum()
-            for w in WINDOWS_H:
-                repl = ~np.isnan(dh) & (dh <= w)
-                repl_tons = at[repl].sum()
+            for wi, w in enumerate(WINDOWS_H):
+                rt = repl_tbl[:n_flag, wi]
+                repl = ~np.isnan(rt)
+                repl_tons = rt[repl].sum()
                 base_tons = kept_total + ot[~repl].sum()
                 rows.append(dict(
                     ranker=ranker, threshold_pct=k, window_h=w,
