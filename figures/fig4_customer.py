@@ -323,6 +323,64 @@ def reduction_surface(merged: pd.DataFrame, db_acc_by_route: dict,
     return R
 
 
+def global_surfaces(db: pd.DataFrame, threshold_log: float) -> dict:
+    """Reduction surfaces over ALL flights in the 2021 corpus.
+
+    Replacement is simplified for 22M-flight scale: an avoided flight is
+    rebooked at its route's AVERAGE acceptable alternative, provided at
+    least one acceptable alternative exists within the window (a single
+    nearest-neighbor lookup answers every window). The oracle declines
+    unhelpful swaps. Mildly conservative for the model vs. the
+    best-in-window rule used for the customer panels.
+    """
+    g = db.dropna(subset=["first_waypoint_time", "contrail_CO2_km",
+                          "total_flight_distance_km", "pred_log"]).copy()
+    tons = (g["contrail_CO2_km"] * g["total_flight_distance_km"]).to_numpy() / 1e3
+    t_h = g["first_waypoint_time"].astype("int64").to_numpy() / 3.6e12
+    total = tons.sum()
+    acc_mask = (g["pred_log"] < threshold_log).to_numpy()
+
+    nearest_dt = np.full(len(g), np.inf)
+    mean_acc = np.full(len(g), np.nan)
+    codes, _ = pd.factorize(g["origin_airport"].astype(str) + ">"
+                            + g["destination_airport"].astype(str), sort=False)
+    order = np.argsort(codes, kind="stable")
+    bounds = np.flatnonzero(np.diff(codes[order])) + 1
+    for grp in np.split(order, bounds):
+        acc = grp[acc_mask[grp]]
+        if len(acc) == 0:
+            continue
+        ta = np.sort(t_h[acc])
+        mean_acc[grp] = tons[acc].mean()
+        tm = t_h[grp]
+        if len(ta) == 1:
+            nearest_dt[grp] = np.abs(tm - ta[0])
+        else:
+            j = np.searchsorted(ta, tm).clip(1, len(ta) - 1)
+            nearest_dt[grp] = np.minimum(np.abs(tm - ta[j - 1]),
+                                         np.abs(tm - ta[j]))
+
+    out = {}
+    for ranker, key in [("model", g["pred_log"].to_numpy()),
+                        ("oracle", g["contrail_CO2_km"].to_numpy())]:
+        rk = np.argsort(key)[::-1]
+        n_max = int(round(len(g) * CONTOUR_THRESHOLDS.max() / 100))
+        sel = rk[:n_max]
+        sv = tons[sel] - mean_acc[sel]
+        if ranker == "oracle":
+            sv = np.maximum(sv, 0.0)
+        sv = np.where(np.isnan(mean_acc[sel]), 0.0, sv)
+        dts = nearest_dt[sel]
+        R = np.zeros((len(CONTOUR_THRESHOLDS), len(CONTOUR_WINDOWS)))
+        for wi, w in enumerate(CONTOUR_WINDOWS):
+            cum = np.cumsum(np.where(dts <= w, sv, 0.0))
+            for ki, k in enumerate(CONTOUR_THRESHOLDS):
+                n_flag = int(round(len(g) * k / 100))
+                R[ki, wi] = 100 * cum[n_flag - 1] / total
+        out[("All 2021 flights", ranker)] = R
+    return out
+
+
 def contour_figure(surfaces: dict):
     """surfaces: {(cust_label, ranker): R}"""
     from matplotlib.colors import LinearSegmentedColormap
@@ -342,9 +400,12 @@ def contour_figure(surfaces: dict):
     vmax = max(R.max() for R in surfaces.values())
     levels = np.arange(0, np.ceil(vmax / 10) * 10 + 10, 10)
 
-    fig, axes = plt.subplots(2, 2, figsize=(12.5, 9), sharex=True, sharey=True)
+    row_labels = list(dict.fromkeys(k[0] for k in surfaces))
+    fig, axes = plt.subplots(len(row_labels), 2,
+                             figsize=(12.5, 4.4 * len(row_labels)),
+                             sharex=True, sharey=True)
     K, W = np.meshgrid(CONTOUR_THRESHOLDS, CONTOUR_WINDOWS, indexing="ij")
-    cust_labels = list(dict.fromkeys(k[0] for k in surfaces))
+    cust_labels = row_labels
     for row, cl in enumerate(cust_labels):
         for col, (ranker, rname) in enumerate(
                 [("model", "Model"), ("oracle", "Perfect foresight")]):
@@ -367,7 +428,7 @@ def contour_figure(surfaces: dict):
             ax.minorticks_off()
             ax.set_title(f"({chr(ord('a') + 2*row + col)}) {cl} — {rname}",
                          fontsize=11)
-            if row == 1:
+            if row == len(cust_labels) - 1:
                 ax.set_xlabel("Worst flights avoided (%)")
             if col == 0:
                 ax.set_ylabel("Rebooking window (±h)")
@@ -449,6 +510,8 @@ def main():
     fig.savefig(OUT / "fig4.pdf", bbox_inches="tight")
     fig.savefig(OUT / "fig4.eps", bbox_inches="tight")
     plt.close(fig)
+    print("Global reduction surfaces (all 2021 flights) ...")
+    surfaces.update(global_surfaces(db, threshold_log))
     contour_figure(surfaces)
     print(f"\nWrote fig4.{{png,pdf,eps}} + fig4_window_summary.csv "
           f"in {time.time()-t0:.0f}s")
