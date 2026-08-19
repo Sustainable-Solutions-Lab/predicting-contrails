@@ -96,14 +96,14 @@ predicting-contrails/
 ├── experiments/                # training + evaluation scripts
 │   ├── feature_pruning.py        # FULL vs LEAN vs LEAN+AC sweep
 │   ├── hyperparameter_tune.py    # 24-config grid + early stopping
-│   ├── final_model.py            # canonical retrain + Fig 3c
+│   ├── final_model.py            # canonical retrain + Fig 3
 │   └── outputs/                  # CSVs, PNGs (cache + joblib gitignored)
 ├── figures/                    # publication figure scripts (no outputs here —
 │   ├── fig1_map.py             #   everything renders straight to Dropbox Plots/)
 │   ├── fig1c_matrix.py
 │   ├── fig2_concentration.py
-│   ├── fig4_customer.py
-│   └── fig5_demand_shift.py
+│   ├── fig4_customer.py          # merged Figs 4+5 (windowed avoidance)
+│   └── figS1_demand_shift.py     # SI: demand-shift feasibility
 ├── manuscript/                 # paper draft + .docx builder
 │   ├── draft.md
 │   ├── build_draft_docx.py
@@ -178,7 +178,7 @@ python experiments/final_model.py
 python figures/fig1_map.py
 python figures/fig1c_matrix.py          # region-to-region forcing matrix
 python figures/fig2_concentration.py
-python figures/fig5_demand_shift.py     # builds 2021 predictions cache
+python figures/figS1_demand_shift.py    # SI fig; builds 2021 predictions cache
 python figures/fig4_customer.py         # uses fig5's cache
 # 5. Manuscript autodraft (also mirrored to Dropbox/Manuscript/)
 python manuscript/build_draft_docx.py
