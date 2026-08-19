@@ -342,7 +342,8 @@ def contour_figure(surfaces: dict):
             ax = axes[row, col]
             R = surfaces[(cl, ranker)]
             cf = ax.contourf(K, W, R, levels=levels, cmap=cmap, extend="min")
-            cl_lines = ax.contour(K, W, R, levels=levels[::2], colors="black",
+            thin = [l for l in levels[::2] if not (R.max() > 100 and l == 100)]
+            cl_lines = ax.contour(K, W, R, levels=thin, colors="black",
                                   linewidths=0.6, alpha=0.6)
             ax.clabel(cl_lines, fmt="%.0f%%", fontsize=7.5, colors="black")
             if R.max() > 100:
