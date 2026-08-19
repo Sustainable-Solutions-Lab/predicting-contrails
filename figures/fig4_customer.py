@@ -13,8 +13,16 @@ Both the model and oracle bars use the same replacement procedure;
 the only difference is which K% they identify (model uses predicted
 forcing; oracle uses true forcing).
 
-Layout: 2 × 2 panels — rows = customer; cols = (avoidance bars, time
-delta to nearest alternative).
+Layout (merged Figs 4+5): one panel per customer. Leftmost bar is the
+customer's original contrail forcing (100%); then, for each avoidance
+threshold (worst 1/5/10/20% of flights by predicted or true forcing),
+bars show the post-avoidance total under rebooking windows of +/-2, 4,
+8 and 16 h (light -> dark). Each bar stacks the forcing of untouched
+flights (solid) and of the replacement flights actually flown (hatched
+top). A flagged flight with no acceptable same-route alternative inside
+the window keeps its original forcing. Because the nearest acceptable
+alternative minimizes |dt|, one nearest-lookup per flight answers every
+window: replaced iff nearest |dt| <= W.
 
 Reads from the 2021-wide predictions cache built by fig5_demand_shift.py
 (experiments/outputs/_2021_predictions.parquet). Run that script first
@@ -55,11 +63,8 @@ MODEL_PATH = EXP_OUT / "final_model.joblib"
 # 90th percentile (= our top-10% rule).
 THRESHOLD_QUANTILE = 0.90
 
-# Cap for the time-delta histogram (longer alternatives become unrealistic
-# bookings)
-TIME_DELTA_CAP_DAYS = 7
-
 THRESHOLDS_PCT = [1, 5, 10, 20]
+WINDOWS_H = [2, 4, 8, 16]          # rebooking windows (+/- hours)
 
 
 @dataclass
@@ -127,173 +132,104 @@ def find_nearest_alternative(
     return float(alt_tons), float(deltas_abs.loc[idx])
 
 
-def replacement_summary(
-    customer_with_pred: pd.DataFrame,    # customer flights + pred_log + airport+time
-    db_acc_by_route: dict[tuple, pd.DataFrame],
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """For each threshold, identify model-flagged and oracle-flagged top-K%.
-    For each flagged flight find nearest-alternative replacement; total
-    becomes (sum of non-flagged actual) + (sum of replacement actual or
-    fall back to original if no alternative exists).
+def window_grid(merged: pd.DataFrame, db_acc_by_route: dict) -> pd.DataFrame:
+    """Post-avoidance totals for every (ranker, threshold, window).
 
-    Returns (summary, per_flagged_flight) — the second is the model-flagged
-    set with its time deltas, used for the histogram panel.
+    One nearest-alternative lookup per flagged flight serves all
+    windows: the nearest candidate minimizes |dt|, so it is within
+    +/-W iff |dt| <= W, and no candidate is otherwise.
     """
-    actual_total = customer_with_pred["co2_eq_tons"].sum()
-    n = len(customer_with_pred)
-
-    by_pred = customer_with_pred.sort_values("pred_log", ascending=False).reset_index(drop=True)
-    by_truth = customer_with_pred.sort_values("co2_eq_tons", ascending=False).reset_index(drop=True)
-
+    n = len(merged)
+    total = merged["co2_eq_tons"].sum()
     rows = []
-    flagged_records = []  # for time-delta histogram, top-10% only
+    for ranker, keycol in [("model", "pred_log"), ("oracle", "co2_eq_tons")]:
+        ordered = merged.sort_values(keycol, ascending=False).reset_index(drop=True)
+        n_max = max(1, int(round(n * max(THRESHOLDS_PCT) / 100)))
+        top = ordered.head(n_max)
+        alt = [find_nearest_alternative(r, db_acc_by_route)
+               for r in top.itertuples()]
+        alt_tons = np.array([a for a, _ in alt])
+        delta_h = np.array([d for _, d in alt])
+        orig_tons = top["co2_eq_tons"].to_numpy()
 
-    for k_pct in THRESHOLDS_PCT:
-        n_flag = max(1, int(round(n * k_pct / 100)))
-
-        def total_with_replacement(flagged: pd.DataFrame, kept: pd.DataFrame, *, record=False):
-            kept_total = kept["co2_eq_tons"].sum()
-            replaced_total = 0.0
-            n_replaced = 0
-            n_kept_original = 0
-            for r in flagged.itertuples():
-                alt_tons, delta_h = find_nearest_alternative(r, db_acc_by_route)
-                if np.isnan(alt_tons):
-                    # No same-route alternative exists in the corpus → keep
-                    # the original flight in the total.
-                    replaced_total += float(r.co2_eq_tons) if not pd.isna(r.co2_eq_tons) else 0.0
-                    n_kept_original += 1
-                    if record:
-                        flagged_records.append(dict(
-                            flight_id=r.flight_id, threshold_pct=k_pct,
-                            replacement_tons=np.nan, time_delta_hours=np.nan,
-                            kept_original=True,
-                        ))
-                else:
-                    replaced_total += alt_tons
-                    n_replaced += 1
-                    if record:
-                        flagged_records.append(dict(
-                            flight_id=r.flight_id, threshold_pct=k_pct,
-                            replacement_tons=alt_tons, time_delta_hours=delta_h,
-                            kept_original=False,
-                        ))
-            return kept_total + replaced_total, n_replaced, n_kept_original
-
-        flagged_model = by_pred.head(n_flag)
-        kept_model = by_pred.iloc[n_flag:]
-        new_total_model, n_repl_m, n_keep_m = total_with_replacement(
-            flagged_model, kept_model, record=(k_pct == 10),
-        )
-
-        flagged_oracle = by_truth.head(n_flag)
-        kept_oracle = by_truth.iloc[n_flag:]
-        new_total_oracle, n_repl_o, n_keep_o = total_with_replacement(
-            flagged_oracle, kept_oracle,
-        )
-
-        rows.append(dict(
-            threshold_pct=k_pct,
-            n_flagged=n_flag,
-            actual_tons=actual_total,
-            after_model_tons=new_total_model,
-            after_oracle_tons=new_total_oracle,
-            model_reduction_pct=100 * (actual_total - new_total_model) / actual_total,
-            oracle_reduction_pct=100 * (actual_total - new_total_oracle) / actual_total,
-            n_model_replaced=n_repl_m,
-            n_model_kept_original=n_keep_m,
-            n_oracle_replaced=n_repl_o,
-            n_oracle_kept_original=n_keep_o,
-        ))
-
-    return pd.DataFrame(rows), pd.DataFrame(flagged_records)
+        for k in THRESHOLDS_PCT:
+            n_flag = max(1, int(round(n * k / 100)))
+            at, dh, ot = alt_tons[:n_flag], delta_h[:n_flag], orig_tons[:n_flag]
+            kept_total = total - ot.sum()
+            for w in WINDOWS_H:
+                repl = ~np.isnan(dh) & (dh <= w)
+                repl_tons = at[repl].sum()
+                base_tons = kept_total + ot[~repl].sum()
+                rows.append(dict(
+                    ranker=ranker, threshold_pct=k, window_h=w,
+                    n_flagged=n_flag, n_replaced=int(repl.sum()),
+                    base_tons=base_tons, replacement_tons=repl_tons,
+                    total_after=base_tons + repl_tons,
+                    pct_remaining=100 * (base_tons + repl_tons) / total,
+                ))
+    return pd.DataFrame(rows)
 
 
 # ──────────────────────────────────────────────────────────────────────────
 # Plotting
 # ──────────────────────────────────────────────────────────────────────────
 
-def bar_panel(ax, summary: pd.DataFrame, label: str):
-    x = np.arange(len(summary))
-    width = 0.36
-    ax.bar(x - width/2, summary["model_reduction_pct"], width=width,
-           color="#d1495b", label="LEAN+AC model")
-    ax.bar(x + width/2, summary["oracle_reduction_pct"], width=width,
-           color="#1f4e79", label="Oracle (perfect knowledge)")
-    for xi, v in zip(x - width/2, summary["model_reduction_pct"]):
-        ax.text(xi, v + 1, f"{v:.0f}%", ha="center", fontsize=9)
-    for xi, v in zip(x + width/2, summary["oracle_reduction_pct"]):
-        ax.text(xi, v + 1, f"{v:.0f}%", ha="center", fontsize=9, color="#1f4e79")
-    ax.set_xticks(x)
-    ax.set_xticklabels([f"top {k}%" for k in summary["threshold_pct"]])
-    ax.set_xlabel("Flights replaced (ranked by predicted forcing)")
-    ax.set_ylabel("Customer contrail-eq forcing reduction (%)")
+ORIG_COLOR = "#e8834f"
+MODEL_SHADES = ["#f4b6bd", "#e98f9b", "#d1495b", "#9d3140"]   # ±2 → ±16 h
+ORACLE_SHADES = ["#b9d0e4", "#83a9ca", "#3f6f9e", "#1f4e79"]
+
+
+def merged_panel(ax, grid: pd.DataFrame, total_tons: float, label: str):
+    bar_w = 0.115
+    group_centers = {k: 1.15 + i * 1.25 for i, k in enumerate(THRESHOLDS_PCT)}
+
+    # Original forcing reference bar
+    ax.bar([0], [100], width=0.42, color=ORIG_COLOR, zorder=3)
+    ax.text(0, 101.5, "100%", ha="center", fontsize=8)
+    ax.axhline(100, color="#999999", ls="--", lw=0.8, zorder=1)
+
+    for k in THRESHOLDS_PCT:
+        for ri, (ranker, shades) in enumerate(
+                [("model", MODEL_SHADES), ("oracle", ORACLE_SHADES)]):
+            cluster = group_centers[k] + (ri - 0.5) * 0.58
+            for wi, w in enumerate(WINDOWS_H):
+                r = grid[(grid.ranker == ranker) & (grid.threshold_pct == k)
+                         & (grid.window_h == w)].iloc[0]
+                x = cluster + (wi - 1.5) * bar_w
+                base_pct = 100 * r.base_tons / total_tons
+                repl_pct = 100 * r.replacement_tons / total_tons
+                ax.bar([x], [base_pct], width=bar_w, color=shades[wi], zorder=3)
+                ax.bar([x], [repl_pct], width=bar_w, bottom=base_pct,
+                       color=shades[wi], alpha=0.45, hatch="//////",
+                       edgecolor="white", linewidth=0, zorder=3)
+                ax.text(x, base_pct + max(repl_pct, 0) + 1.2,
+                        f"{r.pct_remaining:.0f}", ha="center", va="bottom",
+                        fontsize=6.2, rotation=90, color="#444444")
+
+    ax.set_xticks([0] + [group_centers[k] for k in THRESHOLDS_PCT])
+    ax.set_xticklabels(["Original"] + [f"worst {k}%\navoided"
+                                       for k in THRESHOLDS_PCT])
+    ax.set_ylim(0, 112)
+    ax.set_ylabel("Contrail-equivalent forcing (% of original)")
     ax.set_title(label, pad=8)
-    ax.legend(loc="upper left", frameon=False, fontsize=9)
-    upper = max(summary["oracle_reduction_pct"].max() * 1.18, 105)
-    ax.set_ylim(min(summary[["model_reduction_pct", "oracle_reduction_pct"]].min().min() - 5, 0), upper)
-    ax.axhline(0, lw=0.6, color="#444")
     ax.grid(alpha=0.25, axis="y")
+    ax.set_axisbelow(True)
 
 
-def time_delta_panel(ax, flagged: pd.DataFrame, label: str):
-    """Kernel density of |time delta| to the nearest below-threshold
-    same-route alternative for the top-10% model-flagged flights.
-
-    KDE is computed in LOG-time: a linear-hours KDE would bleed density
-    below zero and smear the old 7-day display cap into a fake mode.
-    On log10(hours) the zero boundary vanishes and no cap is needed —
-    the true tail is shown. Rug ticks keep the raw flights visible
-    (n is only ~60-115 per customer).
-    """
-    from scipy.stats import gaussian_kde
-
-    sub = flagged[flagged["threshold_pct"] == 10].copy()
-    n_no_alt = sub["kept_original"].sum()
-
-    delta = sub["time_delta_hours"].dropna()
-    logd = np.log10(np.maximum(delta.to_numpy(), 0.05))
-
-    hi = max(3.0, float(logd.max()) + 0.25)     # cover the true tail
-    grid = np.linspace(-1.1, hi, 400)
-    kde = gaussian_kde(logd, bw_method=0.35)
-    dens = kde(grid)
-
-    ax.fill_between(10 ** grid, dens, color="#d1495b", alpha=0.30, lw=0)
-    ax.plot(10 ** grid, dens, color="#d1495b", lw=2.0)
-    # Rug: the actual flights
-    ax.plot(delta, np.full(len(delta), -0.012 * dens.max()), marker="|",
-            ls="none", color="#d1495b", alpha=0.6, markersize=7,
-            clip_on=False)
-
-    median_h = delta.median() if len(delta) else np.nan
-    if not np.isnan(median_h):
-        ax.axvline(median_h, color="#444", lw=1.2, ls="--",
-                   label=f"median {median_h:.1f} h")
-    if n_no_alt > 0:
-        ax.text(
-            0.98, 0.82,
-            f"+{n_no_alt} flights with no\nsame-route alternative",
-            transform=ax.transAxes, ha="right", va="top",
-            fontsize=9, color="#777",
-        )
-
-    ax.set_xscale("log")
-    ticks = [1, 6, 24, 72, 168, 720]
-    labels = ["1 h", "6 h", "1 d", "3 d", "7 d", "30 d"]
-    if hi > 3.35:
-        ticks.append(2160)
-        labels.append("90 d")
-    ax.set_xticks(ticks)
-    ax.set_xticklabels(labels)
-    ax.set_xlim(10 ** -1.1, 10 ** hi)
-    ax.set_ylim(bottom=0)
-    ax.set_xlabel("|Time delta| to nearest acceptable same-route alternative")
-    ax.set_ylabel("Density (per log₁₀ hours)")
-    ax.set_title(label, pad=8)
-    if not np.isnan(median_h):
-        ax.legend(loc="upper right", frameon=False, fontsize=9)
-    ax.grid(alpha=0.25, axis="y")
+def add_legend(fig):
+    from matplotlib.patches import Patch
+    handles = [
+        Patch(facecolor=ORIG_COLOR, label="Original forcing"),
+        Patch(facecolor=MODEL_SHADES[2], label="Model-flagged avoidance"),
+        Patch(facecolor=ORACLE_SHADES[2], label="Perfect-foresight avoidance"),
+        Patch(facecolor=MODEL_SHADES[1], alpha=0.45, hatch="//////",
+              edgecolor="white", label="Forcing of replacement flights"),
+    ] + [
+        Patch(facecolor=MODEL_SHADES[i], label=f"±{w} h rebooking window")
+        for i, w in enumerate(WINDOWS_H)
+    ]
+    fig.legend(handles=handles, loc="upper center", frameon=False,
+               fontsize=8.5, ncol=4, bbox_to_anchor=(0.5, 1.0))
 
 
 def main():
@@ -313,7 +249,6 @@ def main():
     print(f"  {len(db):,} predictions; "
           f"top-{int((1-THRESHOLD_QUANTILE)*100)}% threshold pred_log = {threshold_log:.4f}")
 
-    # Pre-build the route-keyed acceptable-alternatives index once
     print("Building same-route acceptable-alternative index ...")
     db_acceptable = db[db["pred_log"] < threshold_log][[
         "origin_airport", "destination_airport", "first_waypoint_time",
@@ -328,60 +263,37 @@ def main():
     print(f"  {len(db_acceptable):,} acceptable alternatives across "
           f"{len(db_acc_by_route):,} routes")
 
-    summaries = []
-    flagged_all = []
-    n_unique_by_cust = {}
-    for cust in CUSTOMERS:
+    fig, axes = plt.subplots(1, 2, figsize=(16.5, 6.0))
+    grids = []
+    for ax, cust, letter in zip(axes, CUSTOMERS, "ab"):
         print(f"\n=== {cust.label} ===")
         cust_log = cust.loader()
         merged = cust_log.merge(
             db[["flight_id", "origin_airport", "destination_airport",
                 "first_waypoint_time", "pred_log"]],
             on="flight_id", how="inner",
-        )
-        # Drop NaN ground-truth forcing entries (a few per customer)
-        merged = merged.dropna(subset=["co2_eq_tons", "first_waypoint_time"])
-        n_unique_by_cust[cust.name] = len(merged)
-        print(f"  {len(merged):,} customer flights matched & predicted")
+        ).dropna(subset=["co2_eq_tons", "first_waypoint_time"])
+        total = merged["co2_eq_tons"].sum()
+        print(f"  {len(merged):,} flights matched, {total:.0f} tCO2e")
 
-        summary, flagged = replacement_summary(merged, db_acc_by_route)
-        summary.insert(0, "customer", cust.name)
-        flagged.insert(0, "customer_label", cust.label)
-        flagged.insert(0, "customer", cust.name)
-        summaries.append(summary)
-        flagged_all.append(flagged)
-        print(summary.to_string(index=False))
+        grid = window_grid(merged, db_acc_by_route)
+        grid.insert(0, "customer", cust.name)
+        grids.append(grid)
+        merged_panel(ax, grid, total,
+                     f"({letter}) {cust.label} "
+                     f"(n={len(merged)}, {total:.0f} tCO₂e)")
 
-    summary_all = pd.concat(summaries, ignore_index=True)
-    summary_all.to_csv(OUT / "fig4_summary.csv", index=False)
-    flagged_concat = pd.concat(flagged_all, ignore_index=True)
-    flagged_concat.to_csv(OUT / "fig4_flagged.csv", index=False)
+    add_legend(fig)
+    pd.concat(grids, ignore_index=True).to_csv(
+        OUT / "fig4_window_summary.csv", index=False)
 
-    # ── 2 × 2 figure: bars left, time-delta right; rows = customer ────────
-    fig, axes = plt.subplots(2, 2, figsize=(13, 9))
-    for row, cust in enumerate(CUSTOMERS):
-        cust_summary = summary_all[summary_all["customer"] == cust.name]
-        cust_flagged = flagged_concat[flagged_concat["customer"] == cust.name]
-        n_unique = n_unique_by_cust[cust.name]
-        actual_total = cust_summary["actual_tons"].iloc[0]
-        bar_panel(
-            axes[row, 0], cust_summary,
-            f"({chr(ord('a') + 2 * row)}) {cust.label} avoidance "
-            f"(n={n_unique}, {actual_total:.0f} tCO₂e)",
-        )
-        time_delta_panel(
-            axes[row, 1], cust_flagged,
-            f"({chr(ord('a') + 2 * row + 1)}) {cust.label} time delta to alternative",
-        )
-
-    plt.tight_layout()
-    fig.savefig(OUT / "fig4_combined.png", dpi=200, bbox_inches="tight")
-    fig.savefig(OUT / "fig4_combined.pdf", bbox_inches="tight")
-    fig.savefig(OUT / "fig4_combined.eps", bbox_inches="tight")
+    plt.tight_layout(rect=[0, 0, 1, 0.91])
+    fig.savefig(OUT / "fig4.png", dpi=200, bbox_inches="tight")
+    fig.savefig(OUT / "fig4.pdf", bbox_inches="tight")
+    fig.savefig(OUT / "fig4.eps", bbox_inches="tight")
     plt.close(fig)
-
-    print(f"\nWrote fig4_combined.{{png,pdf}}, fig4_summary.csv, "
-          f"fig4_flagged.csv in {time.time()-t0:.0f}s")
+    print(f"\nWrote fig4.{{png,pdf,eps}} + fig4_window_summary.csv "
+          f"in {time.time()-t0:.0f}s")
 
 
 if __name__ == "__main__":
