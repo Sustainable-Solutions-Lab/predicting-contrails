@@ -153,8 +153,13 @@ def window_grid(merged: pd.DataFrame, db_acc_by_route: dict) -> pd.DataFrame:
         cands = [find_candidates(r, db_acc_by_route) for r in top.itertuples()]
         orig_tons = top["co2_eq_tons"].to_numpy()
 
-        # replacement_tons[i, wi]: NaN = keep original
-        repl_tbl = np.full((len(top), len(WINDOWS_H)), np.nan)
+        # replacement_tons[i, wi]: NaN = keep original. Last column is
+        # the ANY-TIME potential (dash marker): rebook the same route on
+        # an AVERAGE acceptable day. (Picking the single best flight of
+        # the whole year would be degenerate — it cherry-picks extreme
+        # cooling days and can push totals negative.)
+        all_windows = WINDOWS_H + [np.inf]
+        repl_tbl = np.full((len(top), len(all_windows)), np.nan)
         for i, (dh, actual, pred) in enumerate(cands):
             if len(dh) == 0:
                 continue
@@ -168,12 +173,15 @@ def window_grid(merged: pd.DataFrame, db_acc_by_route: dict) -> pd.DataFrame:
                     best = actual[m].min()
                     if best < orig_tons[i]:
                         repl_tbl[i, wi] = best
+            mean_alt = actual.mean()
+            if ranker == "model" or mean_alt < orig_tons[i]:
+                repl_tbl[i, -1] = mean_alt
 
         for k in THRESHOLDS_PCT:
             n_flag = max(1, int(round(n * k / 100)))
             ot = orig_tons[:n_flag]
             kept_total = total - ot.sum()
-            for wi, w in enumerate(WINDOWS_H):
+            for wi, w in enumerate(all_windows):
                 rt = repl_tbl[:n_flag, wi]
                 repl = ~np.isnan(rt)
                 repl_tons = rt[repl].sum()
@@ -210,6 +218,12 @@ def merged_panel(ax, grid: pd.DataFrame, total_tons: float, label: str):
         for ri, (ranker, shades) in enumerate(
                 [("model", MODEL_SHADES), ("oracle", ORACLE_SHADES)]):
             cluster = group_centers[k] + (ri - 0.5) * 0.58
+            # unlimited-window potential: short dash across the cluster
+            ru = grid[(grid.ranker == ranker) & (grid.threshold_pct == k)
+                      & (grid.window_h == np.inf)].iloc[0]
+            ax.plot([cluster - 2.1 * bar_w, cluster + 2.1 * bar_w],
+                    [ru.pct_remaining] * 2, color="#222222", lw=1.8,
+                    zorder=6, solid_capstyle="butt")
             for wi, w in enumerate(WINDOWS_H):
                 r = grid[(grid.ranker == ranker) & (grid.threshold_pct == k)
                          & (grid.window_h == w)].iloc[0]
@@ -246,8 +260,11 @@ def add_legend(fig):
         Patch(facecolor=MODEL_SHADES[i], label=f"±{w} h rebooking window")
         for i, w in enumerate(WINDOWS_H)
     ]
+    from matplotlib.lines import Line2D
+    handles.append(Line2D([0], [0], color="#222222", lw=1.8,
+                          label="Any-time potential (avg. alternative)"))
     fig.legend(handles=handles, loc="upper center", frameon=False,
-               fontsize=8.5, ncol=4, bbox_to_anchor=(0.5, 1.0))
+               fontsize=8.5, ncol=5, bbox_to_anchor=(0.5, 1.0))
 
 
 def main():
