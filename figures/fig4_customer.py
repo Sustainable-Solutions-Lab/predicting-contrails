@@ -272,7 +272,7 @@ def add_legend(fig):
 # ──────────────────────────────────────────────────────────────────────────
 
 CONTOUR_THRESHOLDS = np.arange(1, 31)                    # % of worst flights
-CONTOUR_WINDOWS = np.unique(np.round(np.logspace(0, np.log10(48), 24), 2))
+CONTOUR_WINDOWS = np.unique(np.round(np.logspace(0, np.log10(48), 40), 2))
 
 def reduction_surface(merged: pd.DataFrame, db_acc_by_route: dict,
                       ranker: str) -> np.ndarray:
@@ -326,12 +326,21 @@ def reduction_surface(merged: pd.DataFrame, db_acc_by_route: dict,
 def contour_figure(surfaces: dict):
     """surfaces: {(cust_label, ranker): R}"""
     from matplotlib.colors import LinearSegmentedColormap
-    hex_ramp = ["#3288bd", "#66c2a5", "#abdda4", "#e6f598", "#ffffbf",
-                "#fee08b", "#fdae61", "#f46d43", "#d53e4f", "#9e0142"]
+    from scipy.ndimage import gaussian_filter
+    # Reversed ramp: red = little/no reduction, blue = deep reduction —
+    # the net-zero line then sits in the last blues (net cooling beyond).
+    hex_ramp = ["#9e0142", "#d53e4f", "#f46d43", "#fdae61", "#fee08b",
+                "#ffffbf", "#e6f598", "#abdda4", "#66c2a5", "#3288bd"]
     cmap = LinearSegmentedColormap.from_list("reduction", hex_ramp, N=256)
+    cmap.set_under("#6e0028")
+
+    # Display-only smoothing: the raw surfaces are step functions of
+    # individual flights entering the flagged set / window, which reads
+    # as plotting artifacts. Bars and CSV stay exact.
+    surfaces = {k: gaussian_filter(R, sigma=1.4) for k, R in surfaces.items()}
 
     vmax = max(R.max() for R in surfaces.values())
-    levels = np.arange(0, np.ceil(vmax / 5) * 5 + 5, 5)
+    levels = np.arange(0, np.ceil(vmax / 10) * 10 + 10, 10)
 
     fig, axes = plt.subplots(2, 2, figsize=(12.5, 9), sharex=True, sharey=True)
     K, W = np.meshgrid(CONTOUR_THRESHOLDS, CONTOUR_WINDOWS, indexing="ij")
@@ -342,7 +351,7 @@ def contour_figure(surfaces: dict):
             ax = axes[row, col]
             R = surfaces[(cl, ranker)]
             cf = ax.contourf(K, W, R, levels=levels, cmap=cmap, extend="min")
-            thin = [l for l in levels[::2] if not (R.max() > 100 and l == 100)]
+            thin = [l for l in levels if not (R.max() > 100 and l == 100)]
             cl_lines = ax.contour(K, W, R, levels=thin, colors="black",
                                   linewidths=0.6, alpha=0.6)
             ax.clabel(cl_lines, fmt="%.0f%%", fontsize=7.5, colors="black")
