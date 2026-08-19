@@ -399,6 +399,12 @@ def contour_figure(surfaces: dict):
 
     vmax = max(R.max() for R in surfaces.values())
     levels = np.arange(0, np.ceil(vmax / 10) * 10 + 10, 10)
+    # Discrete bin colors sampled across the FULL ramp so the top bin
+    # (net cooling) is exactly the deepest blue; values below 0 (net
+    # INCREASE in forcing from backfiring swaps) get the darkest red.
+    from matplotlib.colors import ListedColormap
+    bin_cmap = ListedColormap(cmap(np.linspace(0, 1, len(levels) - 1)))
+    bin_cmap.set_under("#6e0028")
 
     row_labels = list(dict.fromkeys(k[0] for k in surfaces))
     fig, axes = plt.subplots(len(row_labels), 2,
@@ -411,7 +417,8 @@ def contour_figure(surfaces: dict):
                 [("model", "Model"), ("oracle", "Perfect foresight")]):
             ax = axes[row, col]
             R = surfaces[(cl, ranker)]
-            cf = ax.contourf(K, W, R, levels=levels, cmap=cmap, extend="min")
+            cf = ax.contourf(K, W, R, levels=levels, cmap=bin_cmap,
+                             extend="min")
             thin = [l for l in levels if not (R.max() > 100 and l == 100)]
             cl_lines = ax.contour(K, W, R, levels=thin, colors="black",
                                   linewidths=0.6, alpha=0.6)
@@ -436,9 +443,9 @@ def contour_figure(surfaces: dict):
     cbar.set_label("Reduction in contrail-equivalent forcing (%)")
 
     for ext in ("png", "pdf", "eps"):
-        fig.savefig(OUT / f"fig4_contours.{ext}", dpi=200, bbox_inches="tight")
+        fig.savefig(OUT / f"fig4.{ext}", dpi=200, bbox_inches="tight")
     plt.close(fig)
-    print(f"Wrote fig4_contours.{{png,pdf,eps}}")
+    print(f"Wrote fig4.{{png,pdf,eps}} (contours)")
 
 
 def main():
@@ -503,17 +510,17 @@ def main():
 
     add_legend(fig)
     pd.concat(grids, ignore_index=True).to_csv(
-        OUT / "fig4_window_summary.csv", index=False)
+        OUT / "figS2_avoidance_summary.csv", index=False)
 
     plt.tight_layout(rect=[0, 0, 1, 0.91])
-    fig.savefig(OUT / "fig4.png", dpi=200, bbox_inches="tight")
-    fig.savefig(OUT / "fig4.pdf", bbox_inches="tight")
-    fig.savefig(OUT / "fig4.eps", bbox_inches="tight")
+    fig.savefig(OUT / "figS2_avoidance.png", dpi=200, bbox_inches="tight")
+    fig.savefig(OUT / "figS2_avoidance.pdf", bbox_inches="tight")
+    fig.savefig(OUT / "figS2_avoidance.eps", bbox_inches="tight")
     plt.close(fig)
     print("Global reduction surfaces (all 2021 flights) ...")
     surfaces.update(global_surfaces(db, threshold_log))
     contour_figure(surfaces)
-    print(f"\nWrote fig4.{{png,pdf,eps}} + fig4_window_summary.csv "
+    print(f"\nWrote fig4 (contours), figS2_avoidance (bars) + summary CSV "
           f"in {time.time()-t0:.0f}s")
 
 

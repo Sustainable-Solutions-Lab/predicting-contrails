@@ -102,7 +102,7 @@ predicting-contrails/
 │   ├── fig1_map.py             #   everything renders straight to Dropbox Plots/)
 │   ├── fig1c_matrix.py
 │   ├── fig2_concentration.py
-│   ├── fig4_customer.py          # merged Figs 4+5 (windowed avoidance)
+│   ├── fig4_customer.py          # Fig 4 (reduction contours) + Fig S2 (bars)
 │   └── figS1_demand_shift.py     # SI: demand-shift feasibility
 ├── manuscript/                 # paper draft + .docx builder
 │   ├── draft.md
