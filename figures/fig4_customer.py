@@ -267,6 +267,109 @@ def add_legend(fig):
                fontsize=8.5, ncol=5, bbox_to_anchor=(0.5, 1.0))
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# Contour figure: % reduction over the (threshold, window) plane
+# ──────────────────────────────────────────────────────────────────────────
+
+CONTOUR_THRESHOLDS = np.arange(1, 31)                    # % of worst flights
+CONTOUR_WINDOWS = np.unique(np.round(np.logspace(0, np.log10(48), 24), 2))
+
+def reduction_surface(merged: pd.DataFrame, db_acc_by_route: dict,
+                      ranker: str) -> np.ndarray:
+    """R[k, w] = % reduction in total forcing avoiding the worst k% of
+    flights (by predicted or actual forcing) with rebooking window ±w.
+
+    Per flagged flight, candidates are sorted by |dt| once; prefix
+    running-minima then give the rational choice at EVERY window:
+      model  — actual forcing of the lowest-PREDICTED candidate so far
+      oracle — lowest-ACTUAL candidate so far, declined if not better.
+    """
+    n = len(merged)
+    total = merged["co2_eq_tons"].sum()
+    keycol = "pred_log" if ranker == "model" else "co2_eq_tons"
+    ordered = merged.sort_values(keycol, ascending=False).reset_index(drop=True)
+    n_max = max(1, int(round(n * CONTOUR_THRESHOLDS.max() / 100)))
+    top = ordered.head(n_max)
+
+    savings = np.zeros((len(top), len(CONTOUR_WINDOWS)))
+    for i, r in enumerate(top.itertuples()):
+        dh, actual, pred = find_candidates(r, db_acc_by_route)
+        if len(dh) == 0:
+            continue
+        o = np.argsort(dh)
+        dhs, act, prd = dh[o], actual[o], pred[o]
+        if ranker == "model":
+            # actual forcing of the running lowest-predicted candidate
+            idx = np.arange(len(prd))
+            run_min = np.minimum.accumulate(prd)
+            new_best = prd <= run_min          # True where a new minimum set
+            arg_prefix = np.maximum.accumulate(np.where(new_best, idx, -1))
+            chosen_act = act[arg_prefix]
+        else:
+            chosen_act = np.minimum.accumulate(act)
+        j = np.searchsorted(dhs, CONTOUR_WINDOWS, side="right") - 1
+        has = j >= 0
+        sv = np.zeros(len(CONTOUR_WINDOWS))
+        sv[has] = r.co2_eq_tons - chosen_act[j[has]]
+        if ranker == "oracle":
+            sv = np.maximum(sv, 0.0)           # oracle declines bad swaps
+        savings[i] = sv
+
+    cum = np.cumsum(savings, axis=0)
+    R = np.zeros((len(CONTOUR_THRESHOLDS), len(CONTOUR_WINDOWS)))
+    for ki, k in enumerate(CONTOUR_THRESHOLDS):
+        n_flag = max(1, int(round(n * k / 100)))
+        R[ki] = 100 * cum[min(n_flag, len(top)) - 1] / total
+    return R
+
+
+def contour_figure(surfaces: dict):
+    """surfaces: {(cust_label, ranker): R}"""
+    from matplotlib.colors import LinearSegmentedColormap
+    hex_ramp = ["#3288bd", "#66c2a5", "#abdda4", "#e6f598", "#ffffbf",
+                "#fee08b", "#fdae61", "#f46d43", "#d53e4f", "#9e0142"]
+    cmap = LinearSegmentedColormap.from_list("reduction", hex_ramp, N=256)
+
+    vmax = max(R.max() for R in surfaces.values())
+    levels = np.arange(0, np.ceil(vmax / 5) * 5 + 5, 5)
+
+    fig, axes = plt.subplots(2, 2, figsize=(12.5, 9), sharex=True, sharey=True)
+    K, W = np.meshgrid(CONTOUR_THRESHOLDS, CONTOUR_WINDOWS, indexing="ij")
+    cust_labels = list(dict.fromkeys(k[0] for k in surfaces))
+    for row, cl in enumerate(cust_labels):
+        for col, (ranker, rname) in enumerate(
+                [("model", "Model"), ("oracle", "Perfect foresight")]):
+            ax = axes[row, col]
+            R = surfaces[(cl, ranker)]
+            cf = ax.contourf(K, W, R, levels=levels, cmap=cmap, extend="min")
+            cl_lines = ax.contour(K, W, R, levels=levels[::2], colors="black",
+                                  linewidths=0.6, alpha=0.6)
+            ax.clabel(cl_lines, fmt="%.0f%%", fontsize=7.5, colors="black")
+            if R.max() > 100:
+                # beyond this line replacements are net-COOLING: the
+                # customer's residual contrail forcing goes negative
+                l100 = ax.contour(K, W, R, levels=[100], colors="black",
+                                  linewidths=1.8)
+                ax.clabel(l100, fmt="net zero", fontsize=8, colors="black")
+            ax.set_yscale("log")
+            ax.set_yticks([1, 2, 4, 8, 16, 32, 48])
+            ax.set_yticklabels(["1", "2", "4", "8", "16", "32", "48"])
+            ax.minorticks_off()
+            ax.set_title(f"({chr(ord('a') + 2*row + col)}) {cl} — {rname}",
+                         fontsize=11)
+            if row == 1:
+                ax.set_xlabel("Worst flights avoided (%)")
+            if col == 0:
+                ax.set_ylabel("Rebooking window (±h)")
+    cbar = fig.colorbar(cf, ax=axes, shrink=0.85, pad=0.02)
+    cbar.set_label("Reduction in contrail-equivalent forcing (%)")
+
+    for ext in ("png", "pdf", "eps"):
+        fig.savefig(OUT / f"fig4_contours.{ext}", dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Wrote fig4_contours.{{png,pdf,eps}}")
+
+
 def main():
     t0 = time.time()
     print(f"Loading model {MODEL_PATH.name} ...")
@@ -300,6 +403,7 @@ def main():
 
     fig, axes = plt.subplots(1, 2, figsize=(16.5, 6.0))
     grids = []
+    surfaces = {}
     for ax, cust, letter in zip(axes, CUSTOMERS, "ab"):
         print(f"\n=== {cust.label} ===")
         cust_log = cust.loader()
@@ -314,6 +418,9 @@ def main():
         grid = window_grid(merged, db_acc_by_route)
         grid.insert(0, "customer", cust.name)
         grids.append(grid)
+        for ranker in ("model", "oracle"):
+            surfaces[(cust.label, ranker)] = reduction_surface(
+                merged, db_acc_by_route, ranker)
         merged_panel(ax, grid, total,
                      f"({letter}) {cust.label} "
                      f"(n={len(merged)}, {total:.0f} tCO₂e)")
@@ -327,6 +434,7 @@ def main():
     fig.savefig(OUT / "fig4.pdf", bbox_inches="tight")
     fig.savefig(OUT / "fig4.eps", bbox_inches="tight")
     plt.close(fig)
+    contour_figure(surfaces)
     print(f"\nWrote fig4.{{png,pdf,eps}} + fig4_window_summary.csv "
           f"in {time.time()-t0:.0f}s")
 
