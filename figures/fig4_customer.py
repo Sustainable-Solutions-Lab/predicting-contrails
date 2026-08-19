@@ -237,28 +237,40 @@ def bar_panel(ax, summary: pd.DataFrame, label: str):
 
 
 def time_delta_panel(ax, flagged: pd.DataFrame, label: str):
-    """Histogram of |time delta| to nearest below-threshold same-route
-    alternative for the top-10% model-flagged flights. Capped at 7 days."""
+    """Kernel density of |time delta| to the nearest below-threshold
+    same-route alternative for the top-10% model-flagged flights.
+
+    KDE is computed in LOG-time: a linear-hours KDE would bleed density
+    below zero and smear the old 7-day display cap into a fake mode.
+    On log10(hours) the zero boundary vanishes and no cap is needed —
+    the true tail is shown. Rug ticks keep the raw flights visible
+    (n is only ~60-115 per customer).
+    """
+    from scipy.stats import gaussian_kde
+
     sub = flagged[flagged["threshold_pct"] == 10].copy()
-    n_total = len(sub)
     n_no_alt = sub["kept_original"].sum()
-    cap_h = TIME_DELTA_CAP_DAYS * 24
 
     delta = sub["time_delta_hours"].dropna()
-    delta_capped = np.minimum(delta, cap_h)
+    logd = np.log10(np.maximum(delta.to_numpy(), 0.05))
 
-    bins = np.linspace(0, cap_h, 25)
-    ax.hist(delta_capped, bins=bins, color="#d1495b", alpha=0.85,
-            edgecolor="white", linewidth=0.6)
+    hi = max(3.0, float(logd.max()) + 0.25)     # cover the true tail
+    grid = np.linspace(-1.1, hi, 400)
+    kde = gaussian_kde(logd, bw_method=0.35)
+    dens = kde(grid)
 
-    # Show median
+    ax.fill_between(10 ** grid, dens, color="#d1495b", alpha=0.30, lw=0)
+    ax.plot(10 ** grid, dens, color="#d1495b", lw=2.0)
+    # Rug: the actual flights
+    ax.plot(delta, np.full(len(delta), -0.012 * dens.max()), marker="|",
+            ls="none", color="#d1495b", alpha=0.6, markersize=7,
+            clip_on=False)
+
     median_h = delta.median() if len(delta) else np.nan
     if not np.isnan(median_h):
         ax.axvline(median_h, color="#444", lw=1.2, ls="--",
                    label=f"median {median_h:.1f} h")
     if n_no_alt > 0:
-        # Sits BELOW the "median" legend entry, which occupies the
-        # upper-right corner — anchoring both at 0.95 made them collide.
         ax.text(
             0.98, 0.82,
             f"+{n_no_alt} flights with no\nsame-route alternative",
@@ -266,12 +278,18 @@ def time_delta_panel(ax, flagged: pd.DataFrame, label: str):
             fontsize=9, color="#777",
         )
 
-    # Add tick marks for human-readable durations
-    ax.set_xticks([0, 24, 48, 72, 96, 120, 144, 168])
-    ax.set_xticklabels(["0", "1d", "2d", "3d", "4d", "5d", "6d", "7d"])
-    ax.set_xlim(0, cap_h)
+    ax.set_xscale("log")
+    ticks = [1, 6, 24, 72, 168, 720]
+    labels = ["1 h", "6 h", "1 d", "3 d", "7 d", "30 d"]
+    if hi > 3.35:
+        ticks.append(2160)
+        labels.append("90 d")
+    ax.set_xticks(ticks)
+    ax.set_xticklabels(labels)
+    ax.set_xlim(10 ** -1.1, 10 ** hi)
+    ax.set_ylim(bottom=0)
     ax.set_xlabel("|Time delta| to nearest acceptable same-route alternative")
-    ax.set_ylabel("Number of flagged flights")
+    ax.set_ylabel("Density (per log₁₀ hours)")
     ax.set_title(label, pad=8)
     if not np.isnan(median_h):
         ax.legend(loc="upper right", frameon=False, fontsize=9)
