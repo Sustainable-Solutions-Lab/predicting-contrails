@@ -34,6 +34,10 @@ from pathlib import Path
 
 import joblib
 import matplotlib.pyplot as plt
+
+# TrueType (Type 42) fonts in EPS/PDF — Illustrator hangs/garbles on
+# matplotlib's default Type 3 glyph programs
+plt.rcParams.update({"ps.fonttype": 42, "pdf.fonttype": 42})
 import numpy as np
 import pandas as pd
 
