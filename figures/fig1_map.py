@@ -51,7 +51,25 @@ COASTLINE_PATH = (
 )
 RANDOM_SEED = 42
 
-CACHE_PATH = EXP_OUT / "_fig1_jpkm_sample.parquet"  # gitignored via *.parquet glob
+CACHE_PATH = EXP_OUT / "_fig1_jpkm_sample_v2.parquet"  # corrected per-pax; gitignored
+
+# Per-passenger forcing is computed HERE from whole-flight energy
+# forcing / (distance x passengers-by-type), NOT from the shards'
+# Joulesperpasskm: that column divides by a default of 10 seats for
+# every type missing from the original seat table (A20N, 737 MAX,
+# A35K, B773, ...), inflating those flights' per-passenger forcing
+# 10-40x. Passenger counts: webtool/assets/pax_by_type.json.
+import json as _json
+_PAX = _json.loads((Path(__file__).resolve().parent.parent
+                    / "webtool" / "assets" / "pax_by_type.json").read_text())
+
+def corrected_jpkm(df):
+    import numpy as _np
+    pax = df["aircraft_type_icao"].astype(str).map(_PAX).fillna(140.0)
+    return (df["total_contrail_energy_forcing"].astype(_np.float64)
+            / (df["total_flight_distance_km"].astype(_np.float64) * pax))
+
+
 
 
 def load_jpkm_sample() -> pd.DataFrame:
@@ -72,7 +90,8 @@ def load_jpkm_sample() -> pd.DataFrame:
     needed = [
         "OriginLon", "OriginLat",
         "DestinationLon", "DestinationLat",
-        "Joulesperpasskm", "total_flight_distance_km",
+        "aircraft_type_icao", "total_contrail_energy_forcing",
+        "total_flight_distance_km",
     ]
     per_file = int(np.ceil(SAMPLE_FLIGHTS / len(files)))
     pieces = []
@@ -85,7 +104,10 @@ def load_jpkm_sample() -> pd.DataFrame:
             n_failed += 1
             print(f"  [{i:2d}/{len(files)}] {f.name}: SKIPPED ({e})", flush=True)
             continue
-        df = df.dropna(subset=["Joulesperpasskm"])
+        df = df.dropna(subset=["total_contrail_energy_forcing",
+                               "total_flight_distance_km"])
+        df = df[df["total_flight_distance_km"] > 0]
+        df["Joulesperpasskm"] = corrected_jpkm(df)
         if len(df) > per_file:
             df = df.sample(per_file, random_state=RANDOM_SEED + i)
         pieces.append(df)
@@ -168,7 +190,7 @@ def main():
     # colorbar in the assembled figure.
     mean_rf = mean_rf / 1e9
 
-    norm = colors.Normalize(vmin=0, vmax=1.0, clip=True)
+    norm = colors.Normalize(vmin=0, vmax=0.5, clip=True)
 
     # Use imshow with bicubic interpolation for smooth cell-to-cell gradient.
     # Mask the NaN regions so the basemap shows through as white.

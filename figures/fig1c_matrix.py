@@ -41,10 +41,28 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "experiments"))
 from feature_pruning import DROPBOX_PARQUETS, DROPBOX_PLOTS, OUT as EXP_OUT  # noqa: E402
 
 OUT = DROPBOX_PLOTS
-CACHE_PATH = EXP_OUT / "_fig1c_od_cache.parquet"
+CACHE_PATH = EXP_OUT / "_fig1c_od_cache_v2.parquet"
+
+# Per-passenger forcing is computed HERE from whole-flight energy
+# forcing / (distance x passengers-by-type), NOT from the shards'
+# Joulesperpasskm: that column divides by a default of 10 seats for
+# every type missing from the original seat table (A20N, 737 MAX,
+# A35K, B773, ...), inflating those flights' per-passenger forcing
+# 10-40x. Passenger counts: webtool/assets/pax_by_type.json.
+import json as _json
+_PAX = _json.loads((Path(__file__).resolve().parent.parent
+                    / "webtool" / "assets" / "pax_by_type.json").read_text())
+
+def corrected_jpkm(df):
+    import numpy as _np
+    pax = df["aircraft_type_icao"].astype(str).map(_PAX).fillna(140.0)
+    return (df["total_contrail_energy_forcing"].astype(_np.float64)
+            / (df["total_flight_distance_km"].astype(_np.float64) * pax))
+
+
 
 MIN_FLIGHTS = 250        # blank cells with fewer flights
-VMAX_GJ = 1.0            # color scale top (GJ / passenger-km); extend above
+VMAX_GJ = 0.5            # color scale top (GJ / passenger-km); extend above
 
 # Same Spectral-style ramp as the Fig 1b map so the two panels can share
 # a colorbar in the assembled figure.
@@ -95,7 +113,8 @@ def load_od_table() -> pd.DataFrame:
 
     files = sorted(DROPBOX_PARQUETS.glob("features_*_gdf.pq"))
     needed = ["OriginLat", "OriginLon", "DestinationLat", "DestinationLon",
-              "Joulesperpasskm"]
+              "aircraft_type_icao", "total_contrail_energy_forcing",
+              "total_flight_distance_km"]
     pieces, n_failed = [], 0
     t0 = time.time()
     print(f"Reading {len(files)} monthly shards ...", flush=True)
@@ -106,7 +125,13 @@ def load_od_table() -> pd.DataFrame:
             n_failed += 1
             print(f"  [{i:2d}/{len(files)}] {f.name}: SKIPPED ({e})", flush=True)
             continue
-        pieces.append(df.dropna(subset=["Joulesperpasskm"]))
+        df = df.dropna(subset=["total_contrail_energy_forcing",
+                               "total_flight_distance_km"])
+        df = df[df["total_flight_distance_km"] > 0]
+        df["Joulesperpasskm"] = corrected_jpkm(df)
+        pieces.append(df.drop(columns=["aircraft_type_icao",
+                                       "total_contrail_energy_forcing",
+                                       "total_flight_distance_km"]))
         if i % 10 == 0 or i == len(files):
             print(f"  [{i:2d}/{len(files)}] {sum(len(p) for p in pieces):,} flights, "
                   f"{time.time()-t0:.0f}s", flush=True)
