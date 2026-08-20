@@ -30,7 +30,10 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "experiments"))
-from feature_pruning import LEAN_AC_FEATS, OUT as EXP_OUT, RANDOM_SEED, TARGET, top_k_metrics  # noqa: E402
+from feature_pruning import (  # noqa: E402
+    DROPBOX_PARQUETS, LEAN_AC_FEATS, OUT as EXP_OUT, RANDOM_SEED, TARGET,
+    top_k_metrics,
+)
 
 ASSETS = Path(__file__).parent / "assets"
 ASSETS.mkdir(exist_ok=True)
@@ -178,3 +181,61 @@ if __name__ == "__main__":
     export_calibration()
     export_models_and_aircraft()
     print("\nAll assets written to webtool/assets/")
+
+
+def export_route_meta():
+    """Stream all shards -> route-level metadata for the web tool.
+
+    routes.json: {"IATA>IATA": {"n": flights, "ac": {type: share...}}}
+      — aircraft mix per airport pair (top 8 types), 2019+2021 pooled.
+    airports_search.json: slim autocomplete list for airports that
+      actually appear in the corpus: [iata, city, name, country].
+    Shard airport codes are ICAO; both files are keyed/expressed in
+    IATA to match the tool's inputs.
+    """
+    import airportsdata
+    icao_tbl = airportsdata.load()          # ICAO-keyed
+    files = sorted(DROPBOX_PARQUETS.glob("features_*_gdf.pq"))
+    pieces = []
+    for i, f in enumerate(files, 1):
+        try:
+            df = pd.read_parquet(f, columns=[
+                "origin_airport", "destination_airport", "aircraft_type_icao"])
+        except OSError:
+            continue
+        pieces.append(df.groupby(
+            ["origin_airport", "destination_airport", "aircraft_type_icao"],
+            observed=True).size())
+        if i % 20 == 0 or i == len(files):
+            print(f"  [{i}/{len(files)}] shards read", flush=True)
+    counts = pd.concat(pieces).groupby(level=[0, 1, 2]).sum()
+
+    def to_iata(icao):
+        e = icao_tbl.get(icao)
+        return e["iata"] if e and e.get("iata") else None
+
+    routes = {}
+    airports_seen = set()
+    for (o, d), grp in counts.groupby(level=[0, 1]):
+        oi, di = to_iata(o), to_iata(d)
+        if not oi or not di:
+            continue
+        n = int(grp.sum())
+        mix = (grp.droplevel([0, 1]).sort_values(ascending=False)
+               .head(8) / n).round(4)
+        routes[f"{oi}>{di}"] = {"n": n,
+                               "ac": {k: float(v) for k, v in mix.items()}}
+        airports_seen.update([o, d])
+
+    search = []
+    for icao in sorted(airports_seen):
+        e = icao_tbl.get(icao)
+        if e and e.get("iata"):
+            search.append([e["iata"], e.get("city", ""), e.get("name", ""),
+                           e.get("country", "")])
+
+    with open(ASSETS / "routes.json", "w") as f:
+        json.dump(routes, f)
+    with open(ASSETS / "airports_search.json", "w") as f:
+        json.dump(search, f)
+    print(f"  {len(routes):,} routes, {len(search):,} searchable airports")
