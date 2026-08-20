@@ -271,9 +271,10 @@ def add_legend(fig):
 # Contour figure: % reduction over the (threshold, window) plane
 # ──────────────────────────────────────────────────────────────────────────
 
-# Log-spaced 1-100%: the interesting structure is at small thresholds,
-# and the x-axis draws on a log scale
-CONTOUR_THRESHOLDS = np.unique(np.round(np.logspace(0, 2, 45)).astype(int))
+# Sampled uniformly in sqrt-space, 1-100%: the x-axis draws on a
+# square-root scale (ticks at the perfect squares), and matching the
+# sample spacing to the display coordinate keeps the smoothing uniform
+CONTOUR_THRESHOLDS = np.unique(np.round(np.linspace(1.0, 10.0, 45) ** 2).astype(int))
 CONTOUR_WINDOWS = np.unique(np.round(np.logspace(0, np.log10(48), 40), 2))
 
 def reduction_surface(merged: pd.DataFrame, db_acc_by_route: dict,
@@ -439,9 +440,13 @@ def contour_figure(surfaces: dict):
             ax.set_yscale("log")
             ax.set_yticks([1, 2, 4, 8, 16, 32, 48])
             ax.set_yticklabels(["1", "2", "4", "8", "16", "32", "48"])
-            ax.set_xscale("log")
-            ax.set_xticks([1, 2, 5, 10, 20, 50, 100])
-            ax.set_xticklabels(["1", "2", "5", "10", "20", "50", "100"])
+            # sqrt scale: tick k^2 sits at position k, so ticks are the
+            # perfect squares, evenly spaced along the axis
+            ax.set_xscale("function", functions=(
+                lambda x: np.sqrt(np.maximum(x, 0)), lambda x: x ** 2))
+            sq = [1, 4, 9, 16, 25, 36, 49, 64, 81, 100]
+            ax.set_xticks(sq)
+            ax.set_xticklabels([str(v) for v in sq])
             ax.set_xlim(1, 100)
             ax.minorticks_off()
             ax.set_title(f"({chr(ord('a') + 2*row + col)}) {cl} — {rname}",
