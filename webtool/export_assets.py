@@ -239,3 +239,57 @@ def export_route_meta():
     with open(ASSETS / "airports_search.json", "w") as f:
         json.dump(search, f)
     print(f"  {len(routes):,} routes, {len(search):,} searchable airports")
+
+
+def export_flightnos():
+    """flightnos.json: IATA flight number -> typical route/time/aircraft.
+
+    From all shards: most-common airport pair (kept if >=60% share and
+    >=20 obs), modal aircraft on that pair, median UTC departure
+    minute-of-day. Airports expressed as IATA. Lets the tool resolve
+    "UA875"-style input; caveat: based on 2019+2021 schedules.
+    """
+    import airportsdata
+    icao_tbl = airportsdata.load()
+    files = sorted(DROPBOX_PARQUETS.glob("features_*_gdf.pq"))
+    pieces = []
+    for i, f in enumerate(files, 1):
+        try:
+            df = pd.read_parquet(f, columns=[
+                "flight_number", "origin_airport", "destination_airport",
+                "aircraft_type_icao", "first_waypoint_time"])
+        except OSError:
+            continue
+        df = df[df.flight_number.astype(str).str.len() >= 3]
+        df["mod"] = (pd.to_datetime(df.first_waypoint_time).dt.hour * 60
+                     + pd.to_datetime(df.first_waypoint_time).dt.minute)
+        pieces.append(df[["flight_number", "origin_airport",
+                          "destination_airport", "aircraft_type_icao", "mod"]])
+        if i % 20 == 0 or i == len(files):
+            print(f"  [{i}/{len(files)}]", flush=True)
+    df = pd.concat(pieces, ignore_index=True)
+
+    out = {}
+    g_all = df.groupby("flight_number", observed=True)
+    for fn, grp in g_all:
+        n = len(grp)
+        if n < 20:
+            continue
+        route = grp.groupby(["origin_airport", "destination_airport"],
+                            observed=True).size().sort_values(ascending=False)
+        (o, d), top_n = route.index[0], route.iloc[0]
+        if top_n / n < 0.6:
+            continue
+        sub = grp[(grp.origin_airport == o) & (grp.destination_airport == d)]
+        oi = (icao_tbl.get(o) or {}).get("iata")
+        di = (icao_tbl.get(d) or {}).get("iata")
+        if not oi or not di:
+            continue
+        ac = sub.aircraft_type_icao.mode()
+        out[str(fn).upper().replace(" ", "")] = [
+            oi, di, int(sub["mod"].median()),
+            str(ac.iloc[0]) if len(ac) else "", int(top_n)]
+    with open(ASSETS / "flightnos.json", "w") as f:
+        json.dump(out, f)
+    print(f"  {len(out):,} flight numbers "
+          f"({(ASSETS/'flightnos.json').stat().st_size/1e6:.1f} MB)")
