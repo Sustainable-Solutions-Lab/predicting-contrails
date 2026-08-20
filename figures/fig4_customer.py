@@ -400,13 +400,18 @@ def contour_figure(surfaces: dict):
     surfaces = {k: gaussian_filter(R, sigma=1.4) for k, R in surfaces.items()}
 
     vmax = max(R.max() for R in surfaces.values())
-    levels = np.arange(0, np.ceil(vmax / 10) * 10 + 10, 10)
+    # Saturate above 110%: the smoothed max (~135%) lives in a sliver of one
+    # panel, and letting it stretch the scale starves every panel of the
+    # blues. Values beyond the top edge collapse into the "over" arrow.
+    top = min(np.ceil(vmax / 10) * 10, 110)
+    levels = np.arange(0, top + 1, 10)
     # Discrete bin colors sampled across the FULL ramp so the top bin
     # (net cooling) is exactly the deepest blue; values below 0 (net
     # INCREASE in forcing from backfiring swaps) get the darkest red.
     from matplotlib.colors import ListedColormap
     bin_cmap = ListedColormap(cmap(np.linspace(0, 1, len(levels) - 1)))
     bin_cmap.set_under("#6e0028")
+    bin_cmap.set_over("#1c5f99")
 
     row_labels = list(dict.fromkeys(k[0] for k in surfaces))
     fig, axes = plt.subplots(len(row_labels), 2,
@@ -420,7 +425,7 @@ def contour_figure(surfaces: dict):
             ax = axes[row, col]
             R = surfaces[(cl, ranker)]
             cf = ax.contourf(K, W, R, levels=levels, cmap=bin_cmap,
-                             extend="min")
+                             extend="both" if vmax > top else "min")
             thin = [l for l in levels if not (R.max() > 100 and l == 100)]
             cl_lines = ax.contour(K, W, R, levels=thin, colors="black",
                                   linewidths=0.6, alpha=0.6)
