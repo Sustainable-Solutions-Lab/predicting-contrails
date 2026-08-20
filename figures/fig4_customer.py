@@ -271,7 +271,9 @@ def add_legend(fig):
 # Contour figure: % reduction over the (threshold, window) plane
 # ──────────────────────────────────────────────────────────────────────────
 
-CONTOUR_THRESHOLDS = np.arange(1, 31)                    # % of worst flights
+# Log-spaced 1-100%: the interesting structure is at small thresholds,
+# and the x-axis draws on a log scale
+CONTOUR_THRESHOLDS = np.unique(np.round(np.logspace(0, 2, 45)).astype(int))
 CONTOUR_WINDOWS = np.unique(np.round(np.logspace(0, np.log10(48), 40), 2))
 
 def reduction_surface(merged: pd.DataFrame, db_acc_by_route: dict,
@@ -432,6 +434,10 @@ def contour_figure(surfaces: dict):
             ax.set_yscale("log")
             ax.set_yticks([1, 2, 4, 8, 16, 32, 48])
             ax.set_yticklabels(["1", "2", "4", "8", "16", "32", "48"])
+            ax.set_xscale("log")
+            ax.set_xticks([1, 2, 5, 10, 20, 50, 100])
+            ax.set_xticklabels(["1", "2", "5", "10", "20", "50", "100"])
+            ax.set_xlim(1, 100)
             ax.minorticks_off()
             ax.set_title(f"({chr(ord('a') + 2*row + col)}) {cl} — {rname}",
                          fontsize=11)
@@ -519,6 +525,10 @@ def main():
     plt.close(fig)
     print("Global reduction surfaces (all 2021 flights) ...")
     surfaces.update(global_surfaces(db, threshold_log))
+    # All-flights panels lead the figure; customers follow
+    row_order = ["All 2021 flights"] + [c.label for c in CUSTOMERS]
+    surfaces = {(cl, rk): surfaces[(cl, rk)]
+                for cl in row_order for rk in ("model", "oracle")}
     contour_figure(surfaces)
     print(f"\nWrote fig4 (contours), figS2_avoidance (bars) + summary CSV "
           f"in {time.time()-t0:.0f}s")
