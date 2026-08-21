@@ -99,26 +99,45 @@ def build_flight(row) -> "Flight":
 ARCO_AR = ("gs://gcp-public-data-arco-era5/ar/"
            "full_37-1h-0p25deg-chunk-1.zarr-v3")
 
+# ARCO variable name -> pycontrails standard name
+MET_RENAME = {
+    "temperature": "air_temperature",
+    "specific_humidity": "specific_humidity",
+    "u_component_of_wind": "eastward_wind",
+    "v_component_of_wind": "northward_wind",
+    "vertical_velocity": "lagrangian_tendency_of_air_pressure",
+    "specific_cloud_ice_water_content": "mass_fraction_of_cloud_ice_in_air",
+}
 
-def open_arco_rad(t0, t1):
-    """Cocip's TOA radiation fields, direct from the ARCO ERA5 zarr —
-    pycontrails' ERA5ARCO wrapper only exposes pressure-level variables,
-    but the store itself carries the accumulated tsr/ttr fields."""
+
+def _arco(t0, t1, variables, levels=None, stride=2):
+    """Open the ARCO ERA5 analysis store directly (anonymous GCS), subset,
+    materialize in memory, and wrap as a pycontrails MetDataset. The
+    pycontrails ERA5ARCO wrapper stalls on lazy remote reads and lacks
+    the radiation fields; going direct sidesteps both."""
     import xarray as xr
     from pycontrails import MetDataset
     ds = xr.open_zarr(ARCO_AR, chunks={}, storage_options={"token": "anon"})
-    ds = ds[["top_net_solar_radiation", "top_net_thermal_radiation"]]
-    ds = ds.sel(time=slice(t0, t1))
+    ds = ds[variables].sel(time=slice(t0, t1))
+    if levels is not None:
+        ds = ds.sel(level=levels)
+    ds = ds.isel(latitude=slice(None, None, stride),
+                 longitude=slice(None, None, stride))
     ds = ds.assign_coords(longitude=(((ds.longitude + 180) % 360) - 180))
     ds = ds.sortby(["longitude", "latitude"])
-    ds = ds.expand_dims(level=[-1.0])
+    if "level" not in ds.dims:
+        ds = ds.expand_dims(level=[-1.0])
+    print(f"    downloading {sum(v.nbytes for v in ds.data_vars.values()) / 1e9:.2f} GB ...",
+          flush=True)
+    ds = ds.load()
+    ds = ds.rename({k: v for k, v in MET_RENAME.items() if k in ds.data_vars})
     for v in ds.data_vars:
-        ds[v].attrs.setdefault("units", "J m**-2")
+        if v.startswith("top_net"):
+            ds[v].attrs.setdefault("units", "J m**-2")
     return MetDataset(ds)
 
 
 def run_date(meta: pd.DataFrame, date: str) -> pd.DataFrame:
-    from pycontrails.datalib.ecmwf import ERA5ARCO
     from pycontrails.models.cocip import Cocip
     from pycontrails.models.humidity_scaling import HistogramMatching
     from pycontrails.models.ps_model import PSFlight
@@ -135,21 +154,10 @@ def run_date(meta: pd.DataFrame, date: str) -> pd.DataFrame:
     t0 = d0 - pd.Timedelta("1h")
     t1 = d0 + pd.Timedelta("42h")
     levels = [175, 200, 225, 250, 300, 350]
-    print("  opening ERA5 (ARCO) ...", flush=True)
-    era5pl = ERA5ARCO(time=(t0, t1), variables=Cocip.met_variables,
-                      pressure_levels=levels)
-    met = era5pl.open_metdataset()
-    rad = open_arco_rad(t0, t1)
-    # Lazy remote reads starve CoCiP (thousands of tiny ranged requests);
-    # subsample to 0.5 deg and materialize the whole window up front
-    # (~1.7 GB) so evaluation runs at memory speed.
-    from pycontrails import MetDataset
-    print("  materializing met window (0.5 deg, 6 levels) ...", flush=True)
-    met = MetDataset(met.data.isel(latitude=slice(None, None, 2),
-                                   longitude=slice(None, None, 2)).load())
-    print("  materializing radiation ...", flush=True)
-    rad = MetDataset(rad.data.isel(latitude=slice(None, None, 2),
-                                   longitude=slice(None, None, 2)).load())
+    print("  loading ERA5 window from ARCO (0.5 deg, 6 levels) ...", flush=True)
+    met = _arco(t0, t1, list(MET_RENAME), levels=levels)
+    print("  loading radiation ...", flush=True)
+    rad = _arco(t0, t1, ["top_net_solar_radiation", "top_net_thermal_radiation"])
     print("  met ready", flush=True)
 
     cocip = Cocip(met=met, rad=rad,

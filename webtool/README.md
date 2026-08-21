@@ -1,7 +1,7 @@
 # webtool — serving layer for the booking-time contrail tool
 
 Everything needed to score an **arbitrary** flight (origin, destination,
-departure time, aircraft) with the canonical LEAN+AC model, outside the
+departure time, aircraft) with the canonical scheduling model, outside the
 training pipeline. The public-facing tool lives in the lab-website repo
 (`Sites/SustainableSolutions`): `api/contrails.py` + the
 `src/tools/contrails/` React island; this folder is the source of truth
