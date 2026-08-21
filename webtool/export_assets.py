@@ -30,8 +30,8 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "experiments"))
-from feature_pruning import (  # noqa: E402
-    DROPBOX_PARQUETS, LEAN_AC_FEATS, OUT as EXP_OUT, RANDOM_SEED, TARGET,
+from common import (  # noqa: E402
+    DROPBOX_PARQUETS, MODEL_FEATS, OUT as EXP_OUT, RANDOM_SEED, TARGET,
     top_k_metrics,
 )
 
@@ -70,7 +70,7 @@ def export_models_and_aircraft():
     canonical.get_booster().save_model(str(ASSETS / "model_canonical.ubj"))
 
     print("Loading pool cache ...")
-    cols = LEAN_AC_FEATS + [TARGET, "contrail_CO2_km", "year"]
+    cols = MODEL_FEATS + [TARGET, "contrail_CO2_km", "year"]
     pool = pd.read_parquet(POOL_CACHE, columns=cols)
     pool["aircraft_type_icao"] = pool["aircraft_type_icao"].astype("category")
 
@@ -99,7 +99,7 @@ def export_models_and_aircraft():
     print(f"Training distilled model on {len(tr):,} rows ...")
     t1 = time.time()
     small = XGBRegressor(**DISTILL_PARAMS)
-    small.fit(tr[LEAN_AC_FEATS], tr[TARGET])
+    small.fit(tr[MODEL_FEATS], tr[TARGET])
     print(f"  fit: {time.time()-t1:.0f}s")
     small.get_booster().save_model(str(ASSETS / "model_web.ubj"))
 
@@ -108,7 +108,7 @@ def export_models_and_aircraft():
     del test
     rows = {}
     for name, model in [("canonical", canonical), ("distilled", small)]:
-        yp = model.predict(te[LEAN_AC_FEATS])
+        yp = model.predict(te[MODEL_FEATS])
         rec10, cap10 = top_k_metrics(te["contrail_CO2_km"], yp, k=0.10)
         rec5, cap5 = top_k_metrics(te["contrail_CO2_km"], yp, k=0.05)
         rows[name] = dict(top10_capture=float(cap10), top10_recall=float(rec10),
@@ -144,7 +144,7 @@ def export_calibration():
     with open(ASSETS / "calibration.json", "w") as f:
         json.dump({
             "n_flights": int(len(db)),
-            "source": "2021 predictions cache, canonical LEAN+AC model",
+            "source": "2021 predictions cache, canonical model",
             "pred_log_quantiles": [float(x) for x in grid],
             "bin_mean_co2e_kg_per_km": [float(x) for x in mean_kg_km],
             "bin_mean_co2e_kg_per_flight": [float(x) for x in mean_kg_flight],

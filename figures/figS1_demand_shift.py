@@ -14,7 +14,7 @@ Pipeline:
   1. Build (or load) a 2021-wide predictions parquet — for every 2021
      flight: flight_id, origin/destination airport codes, scheduled UTC,
      and predicted signed-log contrail forcing under the canonical
-     LEAN+AC model.
+     schedule-only model.
   2. Compute the global 90th-percentile of predicted log forcing — that
      is the rule's threshold.
   3. Identify each customer's top-10% flagged flights (same procedure
@@ -42,8 +42,8 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "experiments"))
-from feature_pruning import (  # noqa: E402
-    DROPBOX_PARQUETS, DROPBOX_PLOTS, LEAN_AC_FEATS, NEEDED_RAW_COLS,
+from common import (  # noqa: E402
+    DROPBOX_PARQUETS, DROPBOX_PLOTS, MODEL_FEATS, NEEDED_RAW_COLS,
     OUT as EXP_OUT, add_features,
 )
 from fig4_customer import CUSTOMERS  # noqa: E402

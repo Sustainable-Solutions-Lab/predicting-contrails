@@ -25,7 +25,7 @@ import pandas as pd
 import xgboost as xgb
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from webtool.features import ASSETS, LEAN_AC_FEATS, build_features  # noqa: E402
+from webtool.features import ASSETS, MODEL_FEATS, build_features  # noqa: E402
 
 _booster = None
 _calib = None
@@ -53,7 +53,7 @@ def _predict(feature_rows: list[dict]) -> np.ndarray:
     df["aircraft_type_icao"] = pd.Categorical(
         df["aircraft_type_icao"], categories=aircraft["categories"],
     )
-    dm = xgb.DMatrix(df[LEAN_AC_FEATS], enable_categorical=True)
+    dm = xgb.DMatrix(df[MODEL_FEATS], enable_categorical=True)
     return booster.predict(dm)
 
 

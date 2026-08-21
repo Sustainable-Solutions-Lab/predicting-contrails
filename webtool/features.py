@@ -1,7 +1,7 @@
 """
 Serving-time feature computation for the contrails web tool.
 
-Rebuilds the canonical LEAN+AC feature vector for an ARBITRARY flight
+Rebuilds the canonical model feature vector for an ARBITRARY flight
 specified as (origin airport, destination airport, departure time UTC,
 aircraft ICAO type) — no process-model data required.
 
@@ -21,7 +21,7 @@ shards (mean abs error 0.000 on sampled flights, 2026-08-18):
 Arrival time is estimated from great-circle distance with the linear
 fit  duration_h = 0.356 + 1.148 * (km / 1000)   (R²=0.988 on shard data).
 
-Cyclic encodings match experiments/feature_pruning.py::add_features
+Cyclic encodings match experiments/common.py::add_features
 exactly (integer truncation of departure hour included).
 """
 
@@ -43,7 +43,7 @@ NB_WAYPOINTS = 30
 DURATION_INTERCEPT_H = 0.356
 DURATION_SLOPE_H_PER_KM = 1.148e-3
 
-LEAN_AC_FEATS = [
+MODEL_FEATS = [
     "total_flight_distance_km",
     "day_sin", "day_cos",
     "start_hour_sin", "start_hour_cos",
@@ -115,7 +115,7 @@ def land_score(olon, olat, dlon, dlat) -> float:
 
 def build_features(origin_iata: str, dest_iata: str, dep_utc: datetime,
                    aircraft_icao: str) -> dict:
-    """Return the 14 LEAN+AC feature values for one flight."""
+    """Return the 14 model feature values for one flight."""
     ap = airports()
     o, d = ap[origin_iata.upper()], ap[dest_iata.upper()]
     olat, olon = o["lat"], o["lon"]

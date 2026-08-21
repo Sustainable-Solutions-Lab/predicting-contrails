@@ -1,5 +1,5 @@
 """
-Hyperparameter tuning for the LEAN+AC model.
+Hyperparameter tuning for the model.
 
 Loads from the cached pooled feature parquet, samples 2M flights stratified by
 year for the search loop, and uses early stopping (so n_estimators self-tunes).
@@ -28,9 +28,9 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from xgboost import XGBRegressor
 
-# Re-use feature lists + metric helpers from the pruning experiment.
-from feature_pruning import (
-    LEAN_AC_FEATS, TARGET, OUT, RANDOM_SEED, top_k_metrics,
+# Shared feature list + metric helpers.
+from common import (
+    MODEL_FEATS, TARGET, OUT, RANDOM_SEED, top_k_metrics,
 )
 
 CACHE = OUT / "_pool_cache_all.parquet"
@@ -78,8 +78,8 @@ def main():
     pool["aircraft_type_icao"] = pool["aircraft_type_icao"].astype("category")
     print(f"  {len(pool):,} rows in {time.time()-t0:.1f}s")
 
-    # Use the SAME 2/3 - 1/3 split as feature_pruning.py for comparable metrics.
-    feat_union = sorted(set(LEAN_AC_FEATS))  # we tune LEAN+AC only
+    # 2/3 - 1/3 train:test split, stratified by year.
+    feat_union = sorted(set(MODEL_FEATS))
     cols_keep = feat_union + [TARGET, "contrail_CO2_km", "year"]
     train, test = train_test_split(
         pool[cols_keep], test_size=1/3,
@@ -106,14 +106,14 @@ def main():
         t1 = time.time()
         m = XGBRegressor(**FIXED, **params)
         m.fit(
-            tune_train[LEAN_AC_FEATS], tune_train[TARGET],
-            eval_set=[(tune_val[LEAN_AC_FEATS], tune_val[TARGET])],
+            tune_train[MODEL_FEATS], tune_train[TARGET],
+            eval_set=[(tune_val[MODEL_FEATS], tune_val[TARGET])],
             verbose=False,
         )
-        yp = m.predict(tune_val[LEAN_AC_FEATS])
+        yp = m.predict(tune_val[MODEL_FEATS])
         rmse = math.sqrt(mean_squared_error(tune_val[TARGET], yp))
         r2 = r2_score(tune_val[TARGET], yp)
-        cap = cap10(m, tune_val[LEAN_AC_FEATS], tune_val[TARGET],
+        cap = cap10(m, tune_val[MODEL_FEATS], tune_val[TARGET],
                     tune_val["contrail_CO2_km"])
         n_used = m.best_iteration + 1
         elapsed = time.time() - t1
@@ -146,7 +146,7 @@ def main():
 
     t2 = time.time()
     final = XGBRegressor(**final_fixed, **best_params)
-    final.fit(train[LEAN_AC_FEATS], train[TARGET])
+    final.fit(train[MODEL_FEATS], train[TARGET])
     print(f"  fit: {time.time()-t2:.0f}s")
 
     # Evaluate
@@ -158,7 +158,7 @@ def main():
         ("test_2019_only", test_2019),
         ("test_2021_only", test_2021),
     ]:
-        yp = final.predict(split[LEAN_AC_FEATS])
+        yp = final.predict(split[MODEL_FEATS])
         rmse = math.sqrt(mean_squared_error(split[TARGET], yp))
         r2 = r2_score(split[TARGET], yp)
         rec5, cap5 = top_k_metrics(split["contrail_CO2_km"], yp, k=0.05)
@@ -171,14 +171,14 @@ def main():
 
     final_metrics = pd.DataFrame(rows_eval)
     final_metrics.to_csv(OUT / "tune_final_metrics.csv", index=False)
-    print("\n[2] Final tuned LEAN+AC metrics:")
+    print("\n[2] Final tuned model metrics:")
     print(final_metrics.to_string(index=False))
 
     # ── Comparison plot: tuned vs default ─────────────────────────────────
-    # Pull pre-tune LEAN+AC numbers from the original metrics.csv if present
+    # Pull pre-tune schedule-only numbers from the original metrics.csv if present
     pre = pd.read_csv(OUT / "metrics.csv")
-    pre_lean_ac = pre[pre["name"].str.startswith("LEAN+AC/")].copy()
-    pre_lean_ac["split"] = pre_lean_ac["name"].str.replace("LEAN+AC/", "", regex=False)
+    pre_lean_ac = pre[pre["name"].str.startswith("schedule-only/")].copy()
+    pre_lean_ac["split"] = pre_lean_ac["name"].str.replace("schedule-only/", "", regex=False)
     pre_lean_ac["config"] = "default (depth=7, lr=0.1, n=300)"
     final_metrics["config"] = (
         f"tuned (depth={best_params['max_depth']}, "

@@ -134,12 +134,23 @@ def run_date(meta: pd.DataFrame, date: str) -> pd.DataFrame:
 
     t0 = d0 - pd.Timedelta("1h")
     t1 = d0 + pd.Timedelta("42h")
-    levels = [150, 175, 200, 225, 250, 300, 350, 400]
-    print("  opening ERA5 (ARCO) ...")
+    levels = [175, 200, 225, 250, 300, 350]
+    print("  opening ERA5 (ARCO) ...", flush=True)
     era5pl = ERA5ARCO(time=(t0, t1), variables=Cocip.met_variables,
                       pressure_levels=levels)
     met = era5pl.open_metdataset()
     rad = open_arco_rad(t0, t1)
+    # Lazy remote reads starve CoCiP (thousands of tiny ranged requests);
+    # subsample to 0.5 deg and materialize the whole window up front
+    # (~1.7 GB) so evaluation runs at memory speed.
+    from pycontrails import MetDataset
+    print("  materializing met window (0.5 deg, 6 levels) ...", flush=True)
+    met = MetDataset(met.data.isel(latitude=slice(None, None, 2),
+                                   longitude=slice(None, None, 2)).load())
+    print("  materializing radiation ...", flush=True)
+    rad = MetDataset(rad.data.isel(latitude=slice(None, None, 2),
+                                   longitude=slice(None, None, 2)).load())
+    print("  met ready", flush=True)
 
     cocip = Cocip(met=met, rad=rad,
                   aircraft_performance=PSFlight(),

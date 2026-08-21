@@ -94,7 +94,7 @@ predicting-contrails/
 ├── README.md
 ├── .gitignore
 ├── experiments/                # training + evaluation scripts
-│   ├── feature_pruning.py        # FULL vs LEAN vs LEAN+AC sweep
+│   ├── common.py                 # shared paths, features, helpers
 │   ├── hyperparameter_tune.py    # 24-config grid + early stopping
 │   ├── final_model.py            # canonical retrain + Fig 3
 │   └── outputs/                  # CSVs, PNGs (cache + joblib gitignored)
@@ -169,7 +169,6 @@ Inherited from prior work by Silas Whiteson. Where things stand:
 
 ```bash
 # 1. Build the pooled feature cache and run the lean-vs-full sweep
-python experiments/feature_pruning.py
 # 2. Hyperparameter grid (loads cache from step 1)
 python experiments/hyperparameter_tune.py
 # 3. Train the canonical model and produce Fig 3c

@@ -1,7 +1,7 @@
 """
 Train the canonical model and emit publication-ready Fig 3.
 
-Canonical model = LEAN+AC (14 features), tuned hyperparameters from
+Canonical model = schedule-only (14 features), tuned hyperparameters from
 the Phase-1 grid search:
     max_depth = 11
     learning_rate = 0.05
@@ -36,8 +36,8 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from xgboost import XGBRegressor
 
-from feature_pruning import (
-    DROPBOX_PLOTS, LEAN_AC_FEATS, OUT, RANDOM_SEED, TARGET, top_k_metrics,
+from common import (
+    DROPBOX_PLOTS, MODEL_FEATS, OUT, RANDOM_SEED, TARGET, top_k_metrics,
 )
 
 CACHE = OUT / "_pool_cache_all.parquet"
@@ -180,7 +180,7 @@ def build_fig3(perm: pd.DataFrame, co2_km: np.ndarray, yp_full: np.ndarray,
         if name in headline:
             bar.set_color("#d1495b")
     ax1.set_xlabel("Permutation importance (Δ R² when shuffled)")
-    ax1.set_title("Feature importance — tuned LEAN+AC")
+    ax1.set_title("Feature importance — tuned schedule-only")
     ax1.grid(alpha=0.25, axis="x")
 
     # Panel letters
@@ -210,7 +210,7 @@ def replot():
         perm["pretty"] = perm["feature"].map(PRETTY)
     perm = perm.sort_values("importance_mean", ascending=True)
 
-    cols_keep = LEAN_AC_FEATS + [TARGET, "contrail_CO2_km", "year"]
+    cols_keep = MODEL_FEATS + [TARGET, "contrail_CO2_km", "year"]
     pool = pd.read_parquet(CACHE, columns=cols_keep)
     pool["aircraft_type_icao"] = pool["aircraft_type_icao"].astype("category")
     _, test = train_test_split(
@@ -219,7 +219,7 @@ def replot():
     del pool
     print(f"  test: {len(test):,} rows in {time.time()-t0:.0f}s")
 
-    yp_full = model.predict(test[LEAN_AC_FEATS])
+    yp_full = model.predict(test[MODEL_FEATS])
     co2_km = test["contrail_CO2_km"].to_numpy()
     night = test["night_score_full_0"].to_numpy(dtype=float)
     build_fig3(perm, co2_km, yp_full, night)
@@ -234,7 +234,7 @@ def main():
     pool["aircraft_type_icao"] = pool["aircraft_type_icao"].astype("category")
     print(f"  {len(pool):,} rows in {time.time()-t0:.1f}s")
 
-    cols_keep = LEAN_AC_FEATS + [TARGET, "contrail_CO2_km", "year"]
+    cols_keep = MODEL_FEATS + [TARGET, "contrail_CO2_km", "year"]
     train, test = train_test_split(
         pool[cols_keep], test_size=1/3,
         random_state=RANDOM_SEED, stratify=pool["year"],
@@ -243,14 +243,14 @@ def main():
     print(f"  train: {len(train):,}   test: {len(test):,}")
 
     # ── Train canonical model ──
-    print("\n[1] Training canonical LEAN+AC ...")
+    print("\n[1] Training canonical schedule-only ...")
     t1 = time.time()
     model = XGBRegressor(**PARAMS)
-    model.fit(train[LEAN_AC_FEATS], train[TARGET])
+    model.fit(train[MODEL_FEATS], train[TARGET])
     print(f"  fit: {time.time()-t1:.0f}s")
 
     # ── Save model ──
-    joblib.dump({"model": model, "features": LEAN_AC_FEATS, "params": PARAMS},
+    joblib.dump({"model": model, "features": MODEL_FEATS, "params": PARAMS},
                 MODEL_PATH)
     print(f"  saved to {MODEL_PATH.name}")
 
@@ -263,7 +263,7 @@ def main():
         ("test_2019_only", test_2019),
         ("test_2021_only", test_2021),
     ]:
-        yp = model.predict(split[LEAN_AC_FEATS])
+        yp = model.predict(split[MODEL_FEATS])
         rmse = math.sqrt(mean_squared_error(split[TARGET], yp))
         r2 = r2_score(split[TARGET], yp)
         rec5, cap5 = top_k_metrics(split["contrail_CO2_km"], yp, k=0.05)
@@ -281,11 +281,11 @@ def main():
     t2 = time.time()
     pi_sample = test.sample(50_000, random_state=RANDOM_SEED)
     pi = permutation_importance(
-        model, pi_sample[LEAN_AC_FEATS], pi_sample[TARGET],
+        model, pi_sample[MODEL_FEATS], pi_sample[TARGET],
         n_repeats=5, random_state=RANDOM_SEED, n_jobs=-1,
     )
     perm = pd.DataFrame(dict(
-        feature=LEAN_AC_FEATS,
+        feature=MODEL_FEATS,
         importance_mean=pi.importances_mean,
         importance_std=pi.importances_std,
     )).sort_values("importance_mean", ascending=True)
@@ -295,16 +295,16 @@ def main():
     print(perm[["feature", "importance_mean", "importance_std"]].to_string(index=False))
 
     # ── Pre-compute the Lorenz curve from predictions ──
-    yp_full = model.predict(test[LEAN_AC_FEATS])
+    yp_full = model.predict(test[MODEL_FEATS])
     co2_km = test["contrail_CO2_km"].to_numpy()
     night = test["night_score_full_0"].to_numpy(dtype=float)
     build_fig3(perm, co2_km, yp_full, night)
 
     # Save a JSON manifest of the canonical model for the paper
     manifest = dict(
-        model="LEAN+AC (14 features) tuned XGBoost regression",
+        model="schedule-only (14 features) tuned XGBoost regression",
         params=PARAMS,
-        features=LEAN_AC_FEATS,
+        features=MODEL_FEATS,
         n_train=int(len(train)),
         n_test=int(len(test)),
         target="contrail_type (signed log of contrail_CO2_km)",

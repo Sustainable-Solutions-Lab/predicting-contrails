@@ -46,7 +46,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "experiments"))
-from feature_pruning import DROPBOX_PLOTS, OUT as EXP_OUT  # noqa: E402
+from common import DROPBOX_PLOTS, OUT as EXP_OUT  # noqa: E402
 
 OUT = DROPBOX_PLOTS
 
