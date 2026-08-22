@@ -32,15 +32,18 @@ df = pd.read_parquet(RES)
 df["py_ef_per_m"] = df["py_ef_J"] / (df["dist_km"] * 1e3)
 r_pred = spearmanr(df["pred_log"], df["py_ef_per_m"])
 r_label = spearmanr(df["label_kg_km"], df["py_ef_per_m"])
+nz = df[df["py_ef_J"] != 0]
+r_pred_nz = spearmanr(nz["pred_log"], nz["py_ef_per_m"])
+r_label_nz = spearmanr(nz["label_kg_km"], nz["py_ef_per_m"])
 
 fig, axes = plt.subplots(1, 2, figsize=(7.2, 3.4), sharey=True)
 season = pd.to_datetime(df["date"]).dt.month.map(
     {1: "Jan", 4: "Apr", 7: "Jul", 10: "Oct"})
 colors = {"Jan": "#3288BD", "Apr": "#66C2A5", "Jul": "#FDAE61", "Oct": "#D53E4F"}
 
-for ax, xcol, xlabel, r in (
-    (axes[0], "pred_log", "Schedule-only prediction (signed-log per-km forcing)", r_pred),
-    (axes[1], "label_kg_km", "Training label (kg CO₂e per km)", r_label),
+for ax, xcol, xlabel, r, rnz in (
+    (axes[0], "pred_log", "Schedule-only prediction (signed-log per-km forcing)", r_pred, r_pred_nz),
+    (axes[1], "label_kg_km", "Training label (kg CO₂e per km)", r_label, r_label_nz),
 ):
     for s, g in df.groupby(season):
         ax.scatter(g[xcol], g["py_ef_per_m"], s=12, alpha=0.7,
@@ -50,7 +53,8 @@ for ax, xcol, xlabel, r in (
         ax.set_xscale("symlog", linthresh=1e-2)
     ax.axhline(0, color="k", lw=0.5, alpha=0.4)
     ax.set_xlabel(xlabel)
-    ax.annotate(f"Spearman ρ = {r.statistic:+.2f}\n(n = {len(df)}, p = {r.pvalue:.1e})",
+    ax.annotate(f"Spearman ρ = {r.statistic:+.2f} (all, n = {len(df)})\n"
+                f"ρ = {rnz.statistic:+.2f} (contrail-forming, n = {len(nz)})",
                 xy=(0.03, 0.96), xycoords="axes fraction", va="top", fontsize=8.5,
                 bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="0.7", alpha=0.9))
 
