@@ -40,7 +40,7 @@ OUT = Path(__file__).resolve().parent / "crossval_results.parquet"
 
 CRUISE_ALT_M_SHORT = 10050.0   # <1500 km
 CRUISE_ALT_M_LONG = 11280.0
-WAYPOINT_MIN = 4.0
+WAYPOINT_KM = 25.0   # below Cocip's 40 km max segment length
 
 
 def sample_flights(dates: list[str], per_decile: int, seed: int = 7) -> pd.DataFrame:
@@ -82,7 +82,7 @@ def build_flight(row) -> "Flight":
     from pyproj import Geod
     geod = Geod(ellps="WGS84")
     dur_h = float(row.flight_duration_h)
-    n = max(8, int(round(dur_h * 60.0 / WAYPOINT_MIN)))
+    n = max(8, int(round(row.total_flight_distance_km / WAYPOINT_KM)))
     lons, lats = zip(*geod.npts(row.OriginLon, row.OriginLat,
                                 row.DestinationLon, row.DestinationLat, n))
     t0 = pd.Timestamp(row.first_waypoint_time)
@@ -110,30 +110,64 @@ MET_RENAME = {
 }
 
 
-def _arco(t0, t1, variables, levels=None, stride=2):
-    """Open the ARCO ERA5 analysis store directly (anonymous GCS), subset,
-    materialize in memory, and wrap as a pycontrails MetDataset. The
-    pycontrails ERA5ARCO wrapper stalls on lazy remote reads and lacks
-    the radiation fields; going direct sidesteps both."""
+MET_CACHE = Path(__file__).resolve().parent / "met_cache"
+MET_CACHE.mkdir(exist_ok=True)
+
+
+def _arco(t0, t1, variables, tag, levels=None, stride=2, time_step=3):
+    """ARCO ERA5, fetched the boring reliable way: sequential per-timestep
+    loads with retries (parallel dask+gcsfs wedges on anonymous access),
+    3-hourly (CoCiP interpolates in time), cached to disk per window so
+    reruns never touch the network. Wrapped as a pycontrails MetDataset."""
+    import time as _time
+
     import xarray as xr
     from pycontrails import MetDataset
-    ds = xr.open_zarr(ARCO_AR, chunks={}, storage_options={"token": "anon"})
-    ds = ds[variables].sel(time=slice(t0, t1))
-    if levels is not None:
-        ds = ds.sel(level=levels)
-    ds = ds.isel(latitude=slice(None, None, stride),
-                 longitude=slice(None, None, stride))
+
+    cache = MET_CACHE / f"{tag}{time_step}h_{pd.Timestamp(t0):%Y%m%dT%H}.nc"
+    if cache.exists():
+        print(f"    {tag}: cached ({cache.name})", flush=True)
+        ds = xr.open_dataset(cache).load()
+    else:
+        ds = xr.open_zarr(ARCO_AR, chunks=None,
+                          storage_options={"token": "anon"})
+        ds = ds[variables].sel(time=slice(t0, t1))
+        ds = ds.isel(time=slice(None, None, time_step))
+        if levels is not None:
+            ds = ds.sel(level=levels)
+        ds = ds.isel(latitude=slice(None, None, stride),
+                     longitude=slice(None, None, stride))
+        nt = ds.sizes["time"]
+        print(f"    {tag}: fetching {nt} steps "
+              f"({sum(v.nbytes for v in ds.data_vars.values()) / 1e9:.2f} GB) ...",
+              flush=True)
+        pieces = []
+        for i in range(nt):
+            for attempt in range(4):
+                try:
+                    pieces.append(ds.isel(time=slice(i, i + 1)).load())
+                    break
+                except Exception as e:  # noqa: BLE001 — network retry
+                    print(f"      step {i} attempt {attempt + 1} failed: "
+                          f"{type(e).__name__}; retrying", flush=True)
+                    _time.sleep(5 * (attempt + 1))
+            else:
+                raise RuntimeError(f"step {i} failed after retries")
+            if (i + 1) % 5 == 0 or i == nt - 1:
+                print(f"      {i + 1}/{nt}", flush=True)
+        ds = xr.concat(pieces, dim="time")
+        ds.to_netcdf(cache)
+        print(f"    {tag}: cached -> {cache.name}", flush=True)
     ds = ds.assign_coords(longitude=(((ds.longitude + 180) % 360) - 180))
     ds = ds.sortby(["longitude", "latitude"])
     if "level" not in ds.dims:
         ds = ds.expand_dims(level=[-1.0])
-    print(f"    downloading {sum(v.nbytes for v in ds.data_vars.values()) / 1e9:.2f} GB ...",
-          flush=True)
-    ds = ds.load()
     ds = ds.rename({k: v for k, v in MET_RENAME.items() if k in ds.data_vars})
     for v in ds.data_vars:
-        if v.startswith("top_net"):
+        if str(v).startswith("top_net"):
             ds[v].attrs.setdefault("units", "J m**-2")
+    # Cocip keys accumulated-radiation handling off these provenance attrs
+    ds.attrs.update(provider="ECMWF", dataset="ERA5", product="reanalysis")
     return MetDataset(ds)
 
 
@@ -154,10 +188,11 @@ def run_date(meta: pd.DataFrame, date: str) -> pd.DataFrame:
     t0 = d0 - pd.Timedelta("1h")
     t1 = d0 + pd.Timedelta("42h")
     levels = [175, 200, 225, 250, 300, 350]
-    print("  loading ERA5 window from ARCO (0.5 deg, 6 levels) ...", flush=True)
-    met = _arco(t0, t1, list(MET_RENAME), levels=levels)
+    print("  loading ERA5 window from ARCO (0.5 deg, 6 levels, 3-hourly) ...", flush=True)
+    met = _arco(t0, t1, list(MET_RENAME), "met", levels=levels)
     print("  loading radiation ...", flush=True)
-    rad = _arco(t0, t1, ["top_net_solar_radiation", "top_net_thermal_radiation"])
+    rad = _arco(t0, t1, ["top_net_solar_radiation", "top_net_thermal_radiation"],
+                "rad", time_step=1)
     print("  met ready", flush=True)
 
     cocip = Cocip(met=met, rad=rad,
