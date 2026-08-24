@@ -68,17 +68,33 @@ ax.spines[["top", "right"]].set_visible(False)
 ax.set_title("(a) Formation discrimination", fontsize=10)
 
 # ── (b) ranking among contrail-forming flights ──
+# Both axes in the SAME units: the independent EF converts to kg CO2e
+# per km with the labels' own AGWP-100 constant, and the prediction
+# inverts from signed-log space (values with |kg| < 1 clamp to the
+# symlog linear region, invisible at this scale).
+AGWP_J_PER_KG = 82.5e-15 * 365 * 24 * 3600 * 5.101e14   # J per kg CO2e
+nz = nz.copy()
+nz["py_kg_km"] = (nz["py_ef_J"] / nz["dist_km"]) / AGWP_J_PER_KG
+nz["pred_kg_km"] = np.where(nz["pred_log"] >= 0,
+                            np.exp(nz["pred_log"]), -np.exp(-nz["pred_log"]))
 ax = axes[1]
 season = pd.to_datetime(nz["date"]).dt.month.map(
     {1: "Jan", 4: "Apr", 7: "Jul", 10: "Oct"})
 colors = {"Jan": "#3288BD", "Apr": "#66C2A5", "Jul": "#FDAE61", "Oct": "#D53E4F"}
 for s, g in nz.groupby(season):
-    ax.scatter(g["pred_log"], g["py_ef_per_m"], s=16, alpha=0.8,
+    ax.scatter(g["pred_kg_km"], g["py_kg_km"], s=16, alpha=0.8,
                color=colors.get(s, "#888"), label=s, linewidths=0)
-ax.set_yscale("symlog", linthresh=1e5)
-ax.axhline(0, color="k", lw=0.5, alpha=0.4)
-ax.set_xlabel("Schedule-only predicted forcing\n(signed-log kg per km)")
-ax.set_ylabel("Independent energy forcing (J per m flown)")
+lim = 1000
+ax.plot([-lim, lim], [-lim, lim], color="k", lw=0.7, ls="--", alpha=0.5)
+ax.annotate("1:1", xy=(120, 45), fontsize=8, alpha=0.6, rotation=45)
+ax.set_xscale("symlog", linthresh=1)
+ax.set_yscale("symlog", linthresh=1)
+ax.set_xlim(-lim, lim)
+ax.set_ylim(-lim, lim)
+ax.axhline(0, color="k", lw=0.5, alpha=0.3)
+ax.axvline(0, color="k", lw=0.5, alpha=0.3)
+ax.set_xlabel("Schedule-only predicted forcing\n(kg CO₂e per km)")
+ax.set_ylabel("Independently simulated forcing\n(kg CO₂e per km)")
 ax.annotate(
     f"Spearman ρ = {r_nz.statistic:+.2f} (n = {len(nz)})\n"
     f"training labels reach ρ = {r_label_nz.statistic:+.2f} (ceiling)",
