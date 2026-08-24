@@ -39,33 +39,65 @@ r_label_nz = spearmanr(nz["label_kg_km"], nz["py_ef_per_m"])
 
 fig, axes = plt.subplots(1, 2, figsize=(7.2, 3.2))
 
-# ── (a) warming vs cooling formation share by predicted quintile ──
+# ── (a) correspondence: predicted quintile vs independent outcome ──
+# Literal quintiles of the independent forcing are undefined (78% of
+# flights tie at exactly zero), so the outcome axis uses five ordered
+# groups that respect the tie structure: net-cooling formers, no
+# contrail, and net-warming formers split into terciles.
 ax = axes[0]
 df["quintile"] = pd.qcut(df["pred_log"], 5, labels=False)
-warm = df.groupby("quintile").apply(lambda g: (g["py_ef_J"] > 0).mean())
-cool = df.groupby("quintile").apply(lambda g: (g["py_ef_J"] < 0).mean())
-nwarm = df.groupby("quintile").apply(lambda g: int((g["py_ef_J"] > 0).sum()))
-ncool = df.groupby("quintile").apply(lambda g: int((g["py_ef_J"] < 0).sum()))
-ax.bar(warm.index, 100 * warm.values, color="#D53E4F", width=0.72,
-       label="net-warming contrail")
-ax.bar(cool.index, -100 * cool.values, color="#3288BD", width=0.72,
-       label="net-cooling contrail")
-for q in warm.index:
-    if nwarm[q]:
-        ax.annotate(str(nwarm[q]), xy=(q, 100 * warm[q] + 1.2),
-                    ha="center", fontsize=7.5, alpha=0.85)
-    if ncool[q]:
-        ax.annotate(str(ncool[q]), xy=(q, -100 * cool[q] - 4.2),
-                    ha="center", fontsize=7.5, alpha=0.85)
-ax.axhline(0, color="k", lw=0.8)
+warm_vals = df.loc[df["py_ef_J"] > 0, "py_ef_per_m"]
+t1, t2 = warm_vals.quantile([1 / 3, 2 / 3])
+
+def outcome(r):
+    if r["py_ef_J"] < 0:
+        return 0
+    if r["py_ef_J"] == 0:
+        return 1
+    if r["py_ef_per_m"] <= t1:
+        return 2
+    if r["py_ef_per_m"] <= t2:
+        return 3
+    return 4
+
+df["outcome"] = df.apply(outcome, axis=1)
+ROWS = ["net-cooling\ncontrail", "no persistent\ncontrail",
+        "net-warming:\nlow tercile", "net-warming:\nmid tercile",
+        "net-warming:\ntop tercile"]
+counts = np.zeros((5, 5), int)
+for (q, o), n_ in df.groupby(["quintile", "outcome"]).size().items():
+    counts[o, q] = n_
+share = counts / counts.sum(axis=0, keepdims=True)   # column-normalized
+
+from matplotlib.colors import LinearSegmentedColormap
+import matplotlib.patches as mpatches
+# formers colored on a crimson ramp; the dominant no-contrail base-rate
+# row in neutral gray so it doesn't shout down the signal
+cmap_f = LinearSegmentedColormap.from_list("share", ["#ffffff", "#9E0142"])
+cmap_n = LinearSegmentedColormap.from_list("none", ["#ffffff", "#8a8a96"])
+for o in range(5):
+    for q in range(5):
+        v = share[o, q]
+        cm = cmap_n if o == 1 else cmap_f
+        vmax = 1.0 if o == 1 else 0.4
+        ax.add_patch(mpatches.Rectangle((q - 0.5, o - 0.5), 1, 1,
+                     facecolor=cm(min(v / vmax, 1.0)), edgecolor="0.85", lw=0.5))
+        if counts[o, q]:
+            ax.text(q, o, f"{100 * v:.0f}%\n({counts[o, q]})",
+                    ha="center", va="center", fontsize=6.8,
+                    color="white" if (v / vmax) > 0.55 else "#202124")
+ax.set_xlim(-0.5, 4.5)
+ax.set_ylim(-0.5, 4.5)
 ax.set_xticks(range(5))
 ax.set_xticklabels(["Q1\n(lowest)", "Q2", "Q3", "Q4", "Q5\n(highest)"], fontsize=8)
+ax.set_yticks(range(5))
+ax.set_yticklabels(ROWS, fontsize=7.5)
 ax.set_xlabel("Quintile of schedule-only predicted forcing")
-ax.set_ylabel("Flights forming a persistent contrail (%)\nin independent simulation")
-ax.set_ylim(-22, 45)
-ax.legend(frameon=False, fontsize=8, loc="upper left")
-ax.spines[["top", "right"]].set_visible(False)
-ax.set_title("(a) Formation discrimination", fontsize=10)
+ax.set_ylabel("Independent-simulation outcome")
+ax.set_title("(a) Outcome by predicted quintile", fontsize=10)
+ax.tick_params(length=0)
+for sp in ax.spines.values():
+    sp.set_visible(False)
 
 # ── (b) ranking among contrail-forming flights ──
 # Both axes in the paper's native energy units (GJ per km): the
@@ -108,5 +140,4 @@ ax.set_title("(b) Forcing rank among formers", fontsize=10)
 fig.tight_layout()
 for ext in ("png", "pdf", "eps"):
     fig.savefig(OUT / f"figS3_pycontrails.{ext}", dpi=200, bbox_inches="tight")
-print(f"figS3 rewritten; warming shares by quintile: {[f'{100*v:.0f}%' for v in warm.values]}; "
-      f"cooling: {[f'{100*v:.0f}%' for v in cool.values]}")
+print("figS3 rewritten; Q5 top-tercile share:", f"{100*share[4,4]:.0f}%", "| Q1:", f"{100*share[4,0]:.0f}%")
