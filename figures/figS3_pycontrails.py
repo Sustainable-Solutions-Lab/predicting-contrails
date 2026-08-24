@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Supplementary Figure S3 — independent cross-model validation.
 
-Scatter of independently simulated per-km contrail forcing (pycontrails
-CoCiP + ARCO ERA5 + Poll–Schumann performance) against our schedule-only
-prediction, for the stratified 2021 sample produced by
-experiments/validation/pycontrails_crossval.py. Spearman rank
-correlations annotated; symlog y-axis because EF spans orders of
-magnitude and includes zeros/cooling.
+Two claims, two panels. (a) Discrimination: the share of flights that
+form a persistent contrail in the independent simulation, by quintile
+of our schedule-only prediction — rises monotonically from the bottom
+to the top quintile. (b) Ranking among formers: independently simulated
+per-km forcing versus our prediction for the flights that DO form
+contrails, with the training labels' own correlation quoted as the
+ceiling. Zero-EF flights (the 78% majority) appear only as panel (a)'s
+denominators, not as a smear of points.
 """
 from pathlib import Path
 
@@ -30,39 +32,64 @@ OUT = Path(
 
 df = pd.read_parquet(RES)
 df["py_ef_per_m"] = df["py_ef_J"] / (df["dist_km"] * 1e3)
-r_pred = spearmanr(df["pred_log"], df["py_ef_per_m"])
-r_label = spearmanr(df["label_kg_km"], df["py_ef_per_m"])
-nz = df[df["py_ef_J"] != 0]
-r_pred_nz = spearmanr(nz["pred_log"], nz["py_ef_per_m"])
+df["formed"] = df["py_ef_J"] != 0
+nz = df[df["formed"]]
+r_nz = spearmanr(nz["pred_log"], nz["py_ef_per_m"])
 r_label_nz = spearmanr(nz["label_kg_km"], nz["py_ef_per_m"])
 
-fig, axes = plt.subplots(1, 2, figsize=(7.2, 3.4), sharey=True)
-season = pd.to_datetime(df["date"]).dt.month.map(
+fig, axes = plt.subplots(1, 2, figsize=(7.2, 3.2))
+
+# ── (a) warming vs cooling formation share by predicted quintile ──
+ax = axes[0]
+df["quintile"] = pd.qcut(df["pred_log"], 5, labels=False)
+warm = df.groupby("quintile").apply(lambda g: (g["py_ef_J"] > 0).mean())
+cool = df.groupby("quintile").apply(lambda g: (g["py_ef_J"] < 0).mean())
+nwarm = df.groupby("quintile").apply(lambda g: int((g["py_ef_J"] > 0).sum()))
+ncool = df.groupby("quintile").apply(lambda g: int((g["py_ef_J"] < 0).sum()))
+ax.bar(warm.index, 100 * warm.values, color="#D53E4F", width=0.72,
+       label="net-warming contrail")
+ax.bar(cool.index, -100 * cool.values, color="#3288BD", width=0.72,
+       label="net-cooling contrail")
+for q in warm.index:
+    if nwarm[q]:
+        ax.annotate(str(nwarm[q]), xy=(q, 100 * warm[q] + 1.2),
+                    ha="center", fontsize=7.5, alpha=0.85)
+    if ncool[q]:
+        ax.annotate(str(ncool[q]), xy=(q, -100 * cool[q] - 4.2),
+                    ha="center", fontsize=7.5, alpha=0.85)
+ax.axhline(0, color="k", lw=0.8)
+ax.set_xticks(range(5))
+ax.set_xticklabels(["Q1\n(lowest)", "Q2", "Q3", "Q4", "Q5\n(highest)"], fontsize=8)
+ax.set_xlabel("Quintile of schedule-only predicted forcing")
+ax.set_ylabel("Flights forming a persistent contrail (%)\nin independent simulation")
+ax.set_ylim(-22, 45)
+ax.legend(frameon=False, fontsize=8, loc="upper left")
+ax.spines[["top", "right"]].set_visible(False)
+ax.set_title("(a) Formation discrimination", fontsize=10)
+
+# ── (b) ranking among contrail-forming flights ──
+ax = axes[1]
+season = pd.to_datetime(nz["date"]).dt.month.map(
     {1: "Jan", 4: "Apr", 7: "Jul", 10: "Oct"})
 colors = {"Jan": "#3288BD", "Apr": "#66C2A5", "Jul": "#FDAE61", "Oct": "#D53E4F"}
+for s, g in nz.groupby(season):
+    ax.scatter(g["pred_log"], g["py_ef_per_m"], s=16, alpha=0.8,
+               color=colors.get(s, "#888"), label=s, linewidths=0)
+ax.set_yscale("symlog", linthresh=1e5)
+ax.axhline(0, color="k", lw=0.5, alpha=0.4)
+ax.set_xlabel("Schedule-only predicted forcing\n(signed-log kg per km)")
+ax.set_ylabel("Independent energy forcing (J per m flown)")
+ax.annotate(
+    f"Spearman ρ = {r_nz.statistic:+.2f} (n = {len(nz)})\n"
+    f"training labels reach ρ = {r_label_nz.statistic:+.2f} (ceiling)",
+    xy=(0.03, 0.97), xycoords="axes fraction", va="top", fontsize=8.5,
+    bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="0.7", alpha=0.9))
+ax.legend(frameon=False, fontsize=8, loc="lower right")
+ax.spines[["top", "right"]].set_visible(False)
+ax.set_title("(b) Forcing rank among formers", fontsize=10)
 
-for ax, xcol, xlabel, r, rnz in (
-    (axes[0], "pred_log", "Schedule-only prediction (signed-log per-km forcing)", r_pred, r_pred_nz),
-    (axes[1], "label_kg_km", "Training label (kg CO₂e per km)", r_label, r_label_nz),
-):
-    for s, g in df.groupby(season):
-        ax.scatter(g[xcol], g["py_ef_per_m"], s=12, alpha=0.7,
-                   color=colors.get(s, "#888"), label=s, linewidths=0)
-    ax.set_yscale("symlog", linthresh=1e5)
-    if xcol == "label_kg_km":
-        ax.set_xscale("symlog", linthresh=1e-2)
-    ax.axhline(0, color="k", lw=0.5, alpha=0.4)
-    ax.set_xlabel(xlabel)
-    ax.annotate(f"Spearman ρ = {r.statistic:+.2f} (all, n = {len(df)})\n"
-                f"ρ = {rnz.statistic:+.2f} (contrail-forming, n = {len(nz)})",
-                xy=(0.03, 0.96), xycoords="axes fraction", va="top", fontsize=8.5,
-                bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="0.7", alpha=0.9))
-
-axes[0].set_ylabel("pycontrails CoCiP + ERA5\nenergy forcing (J per m flown)")
-axes[0].legend(frameon=False, fontsize=8, loc="lower right", title=None)
-axes[0].set_title("(a) vs. schedule-only model", fontsize=10)
-axes[1].set_title("(b) vs. process-model labels", fontsize=10)
 fig.tight_layout()
 for ext in ("png", "pdf", "eps"):
     fig.savefig(OUT / f"figS3_pycontrails.{ext}", dpi=200, bbox_inches="tight")
-print(f"figS3 written; rho_pred={r_pred.statistic:+.3f} rho_label={r_label.statistic:+.3f} n={len(df)}")
+print(f"figS3 rewritten; warming shares by quintile: {[f'{100*v:.0f}%' for v in warm.values]}; "
+      f"cooling: {[f'{100*v:.0f}%' for v in cool.values]}")
