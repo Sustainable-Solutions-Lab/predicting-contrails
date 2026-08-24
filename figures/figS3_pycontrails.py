@@ -68,21 +68,22 @@ ax.spines[["top", "right"]].set_visible(False)
 ax.set_title("(a) Formation discrimination", fontsize=10)
 
 # ── (b) ranking among contrail-forming flights ──
-# Both axes in the SAME units: the independent EF converts to kg CO2e
-# per km with the labels' own AGWP-100 constant, and the prediction
-# inverts from signed-log space (values with |kg| < 1 clamp to the
-# symlog linear region, invisible at this scale).
-AGWP_J_PER_KG = 82.5e-15 * 365 * 24 * 3600 * 5.101e14   # J per kg CO2e
+# Both axes in the paper's native energy units (GJ per km): the
+# prediction inverts from signed-log space and converts to energy with
+# the fixed constant used in label construction (values with small
+# magnitude clamp to the symlog linear region, invisible at this scale).
+J_PER_UNIT = 82.5e-15 * 365 * 24 * 3600 * 5.101e14   # label-construction constant
 nz = nz.copy()
-nz["py_kg_km"] = (nz["py_ef_J"] / nz["dist_km"]) / AGWP_J_PER_KG
-nz["pred_kg_km"] = np.where(nz["pred_log"] >= 0,
-                            np.exp(nz["pred_log"]), -np.exp(-nz["pred_log"]))
+nz["py_gj_km"] = (nz["py_ef_J"] / nz["dist_km"]) / 1e9
+pred_unit = np.where(nz["pred_log"] >= 0,
+                     np.exp(nz["pred_log"]), -np.exp(-nz["pred_log"]))
+nz["pred_gj_km"] = pred_unit * J_PER_UNIT / 1e9
 ax = axes[1]
 season = pd.to_datetime(nz["date"]).dt.month.map(
     {1: "Jan", 4: "Apr", 7: "Jul", 10: "Oct"})
 colors = {"Jan": "#3288BD", "Apr": "#66C2A5", "Jul": "#FDAE61", "Oct": "#D53E4F"}
 for s, g in nz.groupby(season):
-    ax.scatter(g["pred_kg_km"], g["py_kg_km"], s=16, alpha=0.8,
+    ax.scatter(g["pred_gj_km"], g["py_gj_km"], s=16, alpha=0.8,
                color=colors.get(s, "#888"), label=s, linewidths=0)
 lim = 1000
 ax.plot([-lim, lim], [-lim, lim], color="k", lw=0.7, ls="--", alpha=0.5)
@@ -93,8 +94,8 @@ ax.set_xlim(-lim, lim)
 ax.set_ylim(-lim, lim)
 ax.axhline(0, color="k", lw=0.5, alpha=0.3)
 ax.axvline(0, color="k", lw=0.5, alpha=0.3)
-ax.set_xlabel("Schedule-only predicted forcing\n(kg CO₂e per km)")
-ax.set_ylabel("Independently simulated forcing\n(kg CO₂e per km)")
+ax.set_xlabel("Schedule-only predicted forcing\n(GJ per km)")
+ax.set_ylabel("Independently simulated forcing\n(GJ per km)")
 ax.annotate(
     f"Spearman ρ = {r_nz.statistic:+.2f} (n = {len(nz)})\n"
     f"training labels reach ρ = {r_label_nz.statistic:+.2f} (ceiling)",
