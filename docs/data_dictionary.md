@@ -46,7 +46,7 @@ monotone alternative for future work is `sign(x)·ln(1+|x|)`.
 | `DestinationLat` | destination latitude | Degrees, positive north. |
 | `DestinationLon_sin`, `DestinationLon_cos` | destination longitude (cyclic) | As origin longitude. |
 | `land_score` | over-land fraction | Share of the great-circle track over land (from the label shards). |
-| `night_score_full_0` | night fraction (sun-weighted) | Route-mean darkness over the flight, weighted by solar geometry (from the label shards; 0–100). |
+| `night_score_full_0` | insolation | Route-mean darkness over the flight, weighted by solar geometry (from the label shards; 0–100). The paper refers to this feature as "insolation": the stored value is the complement of route-averaged normalized insolation (high value = little sunlight along the route). |
 | `aircraft_type_icao` | aircraft type | ICAO type designator, categorical (e.g. B77W, A320). |
 
 ## Additional engineered columns (corpus filtering and figures only)
