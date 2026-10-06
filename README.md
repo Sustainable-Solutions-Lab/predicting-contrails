@@ -1,198 +1,131 @@
 # predicting-contrails
 
-Predicting the radiative forcing of individual flights' contrails from
-schedule-level information that a passenger or booking service would know
-weeks-to-months in advance.
+Code for the manuscript
 
-This is the code repository for the manuscript working-titled
-**"Flying smarter to reduce radiative forcing of contrails"**
-(Whiteson, Bonnemaizon, Shapiro, Davis; in preparation).
+> **Flyers can identify the most-warming flights when booking**
+> Steven J. Davis, Silas Whiteson, Xavier Bonnemaizon, Ken Caldeira, Roger Teoh, and Marc Shapiro (2026)
 
-## Motivation
+We train a model on per-flight contrail forcing for 52.5 million commercial
+flights in 2019 and 2021 that uses only information available in a published
+flight schedule: origin and destination, departure date and time, aircraft
+type, and great-circle geometry, with no weather data. Although schedule
+information cannot anticipate the weather a flight will meet, the 10% of
+flights the model flags as most warming account for 68% of total contrail
+forcing in held-out data, about 60% of what perfect foresight could achieve.
+We apply the model to two corporations' 2021 flight logs and to the full 2021
+schedule to estimate how much forcing could be avoided by rebooking onto
+same-route alternatives.
 
-Aviation's non-CO2 climate forcing — dominated by warming contrail cirrus —
-is comparable to or larger than its CO2 forcing on a 100-yr horizon, yet it
-is unevenly distributed across flights: a small minority of flights produce
-a large majority of the warming. Process-based models (e.g.
-[CoCiP](https://contrails.org/)) can estimate per-flight contrail energy
-forcing post hoc from atmospheric state along the actual trajectory, but
-those inputs are not available to consumers at booking time.
+The model is live in a free web tool, [Contrail Check](https://sustainablesolutions.vercel.app/tools/contrails),
+and a [Chrome extension](https://chromewebstore.google.com/detail/contrail-check-for-google/jgoiipmnojcdecidalejcadljdcjacgl)
+that adds predictions to Google Flights results.
 
-This project asks: **using only the information a traveler has when booking
-(origin, destination, scheduled time, aircraft type, season, sun geometry
-along the great-circle route, …), how well can we predict whether a given
-flight will be a high-warming contrail outlier?** If we can flag the worst
-~5–10% of flights, climate-conscious travelers and corporate travel
-programs could meaningfully reduce contrail forcing without changing where
-or whether people fly.
+## Terminology
 
-## Targets
-
-Two complementary prediction tasks, both trained on the same per-flight
-process-model labels:
-
-1. **Top-decile classifier** — binary "is this flight in the top 5–10% of
-   per-km contrail energy forcing?" Intended as a simple consumer rule.
-2. **Numerical regression** — predict per-flight (or per-passenger-km)
-   contrail energy forcing in CO2-equivalent tonnes, suitable for a
-   booking-service display alongside CO2.
+Throughout, *contrail forcing* means contrail energy forcing: the radiative
+forcing of a flight's contrails integrated over their lifetime and spatial
+extent, in joules. Summed over many flights it is a net quantity that includes
+the small negative contribution of contrails that cool, so shares of the total
+can exceed 100%. Where CO₂-equivalents appear, energy forcing is converted with
+AGWP₁₀₀ = 8.25 × 10⁻¹⁴ W m⁻² yr (kg CO₂)⁻¹ (1 kg CO₂-e per 1.33 GJ).
+[`docs/data_dictionary.md`](docs/data_dictionary.md) maps every column name in
+the code to the term used in the paper, with definitions and units.
 
 ## Data
 
-The training labels come from a process-based contrail model run by the
-Breakthrough Energy contrails team (see [contrails.org](https://contrails.org/))
-on commercial flights from **2019 and 2021** (2020 omitted as
-COVID-anomalous). The dataset covers ~2.3M flights with per-flight
-contrail energy forcing and many auxiliary variables.
+Training labels are per-flight contrail energy forcing from the GAIA global
+aviation emissions inventory (Teoh et al. 2024, *Atmos. Chem. Phys.* 24,
+6071–6093), computed with the Contrail Cirrus Prediction model (CoCiP) on
+flown trajectories and ERA5 reanalysis weather. 2020 is excluded as
+COVID-anomalous.
 
-**Data is not committed to this repo.** The current canonical copy lives in
-the lab Dropbox under
-`Papers/Active Prep/WS Corp contrails (w Silas)/`:
+**Data files are not in this repository.** The cleaned per-flight label and
+feature tables (excluding the corporate flight logs) will be deposited on
+Zenodo with the paper. The two corporate flight logs used in the case study are
+proprietary and are not released. Scripts read the label shards from the path
+set as `DROPBOX_PARQUETS` in [`experiments/common.py`](experiments/common.py);
+point it at your copy of the data.
 
-- `adjustedEFs/features_YYYYMMW_gdf.pq` — 94 monthly parquet shards (75
-  columns) with raw process-model outputs and Silas's engineered features.
-- `Analysis/additionalfeatures.pq` — cleaned, deduplicated 2.29M-flight
-  table used for downstream modeling.
-- `Analysis/flight collection/YYYYMMDD-summary.pq` — slim daily summaries
-  (partial coverage).
-- `Results/Results_Cust1*.{csv,xlsx}`, `Results/Results_Cust2.xlsx` —
-  Watershed customer flight datasets used for the "applied predictions"
-  case study (Fig. 4). **Customer datasets are proprietary and stay out of
-  this repo.**
+## Model
 
-A public mirror of the training data (without customer datasets) will be
-deposited on Zenodo at submission.
+A gradient-boosted regression tree model (XGBoost; depth 11, learning rate
+0.05, 348 trees, minimum child weight 50, 85% row subsampling) predicts the
+signed logarithm of per-km contrail forcing from 14 features:
 
-### Schedule-only feature set
+- flight distance
+- aircraft type (ICAO designator, native categorical)
+- day of year and UTC departure hour (sine/cosine pairs)
+- origin and destination latitude, and longitude (sine/cosine pairs)
+- share of the great-circle route over land
+- insolation along the great-circle route (sun-weighted night fraction from
+  solar geometry at 30 interpolated waypoints)
 
-To keep the model usable at booking time, training features should be
-restricted to variables knowable from a schedule. Acceptable:
+No feature uses atmospheric data or the flown trajectory. Models are trained
+on a 2:1 train/test split of the pooled 2019 and 2021 flights, stratified by
+year. Hyperparameters come from a 24-configuration grid search scored by
+held-out worst-decile capture.
 
-- Origin / destination airport, region, continent, transoceanic fraction
-- Scheduled departure local/UTC time → hour, day-of-week, season
-- Great-circle bearing, distance, mean / max latitude
-- Sun geometry along the great-circle (day/night fraction, dawn/dusk flag)
-- Aircraft ICAO type, engine, nominal seat capacity
-
-Out of scope (these depend on flown trajectory or atmospheric state and
-must not leak into training):
-
-- `Tempmultiplier`, `maxTempmultiplier`
-- `night_score_full_*`, `night_score_bool_*` (these are altitude-bin
-  specific and computed along the actual waypoints)
-- `mean_aircraft_mass`, `total_fuel_burn`, `n_wypts`, `mean_sdr_/olr_*`
-- Anything derived from `total_persistent_contrail_length_km` or contrail
-  forcing itself
-
-A clean schedule-only feature list is one of the first things we'll lock
-down in this repo (see `src/features/`).
-
-## Repo layout
+## Repository layout
 
 ```
 predicting-contrails/
-├── README.md
-├── .gitignore
-├── experiments/                # training + evaluation scripts
-│   ├── common.py                 # shared paths, features, helpers
-│   ├── hyperparameter_tune.py    # 24-config grid + early stopping
-│   ├── final_model.py            # canonical retrain + Fig 3
-│   └── outputs/                  # CSVs, PNGs (cache + joblib gitignored)
-├── figures/                    # publication figure scripts (no outputs here —
-│   ├── fig1_map.py             #   everything renders straight to Dropbox Plots/)
-│   ├── fig1c_matrix.py
-│   ├── fig2_concentration.py
-│   ├── fig4_customer.py          # Fig 4 (reduction contours) + Fig S2 (bars)
-│   └── figS1_demand_shift.py     # SI: demand-shift feasibility
-├── manuscript/                 # paper draft + .docx builder
-│   ├── draft.md
-│   ├── build_draft_docx.py
-│   └── Working Draft <date> [Contrails - autodraft].docx
-└── archived/                   # historical artifacts, kept for traceability
-    ├── sherlock-snapshot/        # Silas Whiteson's Sherlock files,
-    │                             # imported one-time as the starting point
-    └── silas-local/              # Silas's laptop-side originals
-                                  # (Flights.py, finalcolumns.py, warmingmap.py)
+├── experiments/
+│   ├── common.py               shared paths, feature engineering, helpers
+│   ├── build_cache.py          build the pooled 2019+2021 feature cache (run first)
+│   ├── hyperparameter_tune.py  24-configuration grid search with early stopping
+│   ├── final_model.py          train the canonical model; metrics, importances, Fig. 3
+│   ├── cross_year.py           train on one year, test on the other
+│   ├── validation/             independent re-simulation of 273 flights with pycontrails
+│   │                           and concordance with published statistics
+│   └── outputs/                small metric CSVs and diagnostic plots
+├── figures/                    publication figure scripts
+│   ├── fig1_map.py, fig1c_matrix.py   global map and region matrix (Fig. 1)
+│   ├── fig2_concentration.py          concentration of forcing across flights (Fig. 2)
+│   ├── fig4_customer.py               avoidance surfaces and bars (Fig. 4, SI)
+│   ├── figS1_demand_shift.py          availability of same-route alternatives (SI);
+│   │                                  also builds the 2021 predictions cache
+│   ├── figS3_pycontrails.py           independent-validation figure (SI)
+│   └── figS_aircraft_types.py         aircraft-type counterfactual (SI)
+├── webtool/                    feature computation and scoring for arbitrary flights,
+│                               and the asset export used by the web tool
+├── docs/data_dictionary.md     column names, paper terms, definitions, units
+└── manuscript/                 early auto-generated draft (superseded)
 ```
 
-## How the GitHub repo and the lab Dropbox interact
+Figure scripts write PNG, PDF and EPS files to the path set as
+`DROPBOX_PLOTS` in `experiments/common.py`.
 
-This is a hybrid project: code lives in GitHub for version control and
-collaboration, while data, raw figure outputs, the Illustrator-polished
-figures, and the manuscript drafts live in the lab Dropbox under
-`Papers/Active Prep/Contrails/WS Corp contrails (w Silas)/`.
+## Reproducing the results
 
-| Where it lives | What's there | Authoritative for |
-|---|---|---|
-| **GitHub** (private) | Code, manuscript markdown + .docx builder, the auto-generated .docx, small CSV summary outputs | Reproducibility, code review, change history |
-| **Dropbox** `adjustedEFs/` | Per-month process-model parquets (94 shards, ~52M flights) | Training data |
-| **Dropbox** `Results/` | Customer 1 and Customer 2 flight logs (sensitive — never in repo) | Customer applications |
-| **Dropbox** `Plots/` | **Raw machine-generated figures**, written directly by the scripts in this repo | Latest model outputs (bypasses git for binaries) |
-| **Dropbox** `Figures/` | **Illustrator-polished publication versions** maintained by hand | Manuscript-ready figures |
-| **Dropbox** `Manuscript/` | Hand-edited Working Drafts + autodraft mirror | Active writing |
-
-In short: **`Plots/` is what the code emits, `Figures/` is what humans
-clean up for publication.** Every figure script saves its png/pdf/eps
-(plus any per-figure CSV) directly into `Plots/` — there are no output
-folders in the repo, and nothing needs syncing.
-
-To regenerate the Illustrator-ready `Figures/` versions, open the
-corresponding .ai file in Dropbox and re-import the latest raster from
-`Plots/`.
-
-## Status
-
-Inherited from prior work by Silas Whiteson. Where things stand:
-
-- ✅ Process-model dataset assembled and engineered features generated
-  (`Flights.py`, `finalcolumns.py`).
-- ✅ Initial random-forest model trained (location of training script TBD —
-  `warmingmap.py` reads predictions from a `Sherlockdfs/` directory not
-  yet pulled into this repo).
-- ✅ Draft figures 1–4 produced (Adobe Illustrator + PNG in Dropbox).
-- ✅ Manuscript outline through Methods, with placeholder numbers.
-
-### Next up (this repo)
-
-- [ ] Recover/relocate the model-training code from Sherlock and commit it.
-- [ ] Lock down the schedule-only feature set and re-train both the
-      top-decile classifier and the per-km RF regressor.
-- [ ] Reproducible Lorenz / concentration plot from current model
-      (Figure 2).
-- [ ] Refine Figure 3c (ML-vs-baseline bar chart).
-- [ ] Re-render Figure 1 global map with interpolated (not dotted) RF
-      shading.
-- [ ] Apply final rule to Cust1 / Cust2 datasets → Figure 4.
-- [ ] First full draft of the paper (numbers in, no `X%` placeholders).
-
-## Reproducing
+Requires Python 3.11 with XGBoost, scikit-learn, pandas, pyarrow, matplotlib
+and SciPy. The independent validation additionally requires pycontrails
+(v0.63) and access to the public ERA5 ARCO archive.
 
 ```bash
-# 1. Build the pooled feature cache and run the lean-vs-full sweep
-# 2. Hyperparameter grid (loads cache from step 1)
-python experiments/hyperparameter_tune.py
-# 3. Train the canonical model and produce Fig 3c
-python experiments/final_model.py
-# 4. Figures (each writes straight to Dropbox/Plots/)
-python figures/fig1_map.py
-python figures/fig1c_matrix.py          # region-to-region forcing matrix
-python figures/fig2_concentration.py
-python figures/figS1_demand_shift.py    # SI fig; builds 2021 predictions cache
-python figures/fig4_customer.py         # uses fig5's cache
-# 5. Manuscript autodraft (also mirrored to Dropbox/Manuscript/)
-python manuscript/build_draft_docx.py
+cd experiments
+python build_cache.py             # pooled 52.5M-flight feature cache (~6 min, ~2.4 GB)
+python hyperparameter_tune.py     # grid search
+python final_model.py             # canonical model, metrics, permutation importance, Fig. 3
+python cross_year.py              # cross-year generalization (~20 min)
+cd ../figures
+python figS1_demand_shift.py      # builds the 2021 predictions cache used by Fig. 4
+python fig1_map.py
+python fig1c_matrix.py
+python fig2_concentration.py
+python fig4_customer.py           # requires the corporate logs (not released)
+python figS_aircraft_types.py
+python ../experiments/validation/pycontrails_crossval.py   # slow; caches weather locally
+python figS3_pycontrails.py
 ```
 
-The 2.35 GB pooled feature cache and 0.77 GB 2021 predictions cache are
-gitignored; both are rebuilt on first run from the Dropbox parquets in
-~6 min apiece, and reused across subsequent runs.
+Caches, trained model files and weather downloads are gitignored and rebuilt
+on first run.
 
 ## Authors
 
-Silas Whiteson, Xavier Bonnemaizon (LSCE/IPSL), Marc Shapiro
-(Breakthrough Energy), Steven J. Davis (Stanford / Sustainable Solutions
-Lab). Final author list and order TBD.
-
-## License
-
-TBD.
+- Steven J. Davis (Stanford University), corresponding author: sjdavis@stanford.edu
+- Silas Whiteson (Colorado College)
+- Xavier Bonnemaizon (LSCE/IPSL, Université Paris-Saclay; UC Irvine)
+- Ken Caldeira (Gates Ventures)
+- Roger Teoh (Imperial College London)
+- Marc Shapiro (Breakthrough Energy / Orca Sciences)
