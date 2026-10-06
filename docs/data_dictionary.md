@@ -10,7 +10,7 @@ bundle validates feature names at predict time, so they are not renamed).
 Sources: raw label shards (`adjustedEFs/features_{year}*_gdf.pq`),
 engineered columns from `experiments/common.py:add_features()`, and the
 model-output columns written by `experiments/final_model.py` and
-`figures/figS1_demand_shift.py`.
+`figures/demand_shift.py`.
 
 ## Target and label columns
 

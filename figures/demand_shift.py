@@ -1,5 +1,5 @@
 """
-Fig S1 (SI; formerly Fig 5) — Demand-shift feasibility of the top-10% avoidance rule.
+Demand-shift feasibility of the top-10% avoidance rule.
 
 For every flight in the model's predicted top 10% across each customer's
 log, we ask: how many same-route alternative departures (same origin and
@@ -225,9 +225,9 @@ def plot_demand_shift(per_flight: pd.DataFrame, pct_with: dict):
     ax.grid(alpha=0.25, axis="y")
 
     plt.tight_layout()
-    fig.savefig(OUT / "figS1_demand_shift.png", dpi=200, bbox_inches="tight")
-    fig.savefig(OUT / "figS1_demand_shift.pdf", bbox_inches="tight")
-    fig.savefig(OUT / "figS1_demand_shift.eps", bbox_inches="tight")
+    fig.savefig(OUT / "demand_shift.png", dpi=200, bbox_inches="tight")
+    fig.savefig(OUT / "demand_shift.pdf", bbox_inches="tight")
+    fig.savefig(OUT / "demand_shift.eps", bbox_inches="tight")
     plt.close(fig)
 
 
@@ -285,11 +285,11 @@ def main():
               f"{per_flight['min_time_delta_hours'].median():.1f}h")
 
     per_flight_all = pd.concat(all_per_flight, ignore_index=True)
-    per_flight_all.to_csv(OUT / "figS1_per_flight.csv", index=False)
-    pd.DataFrame(pct_with_all).to_csv(OUT / "figS1_pct_with_alt.csv")
+    per_flight_all.to_csv(OUT / "demand_shift_per_flight.csv", index=False)
+    pd.DataFrame(pct_with_all).to_csv(OUT / "demand_shift_pct_with_alt.csv")
 
     plot_demand_shift(per_flight_all, pct_with_all)
-    print(f"\nWrote figS1_demand_shift.{{png,pdf}} + summary CSVs in "
+    print(f"\nWrote demand_shift.{{png,pdf}} + summary CSVs in "
           f"{time.time()-t0:.0f}s")
 
 

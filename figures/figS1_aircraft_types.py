@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Supplementary figure — aircraft-type effects in the scheduling model.
+"""Supplementary Figure S1 — aircraft-type effects in the scheduling model.
 
 Counterfactual swap: a fixed sample of real flight schedules is
 re-predicted as if each were flown by a given aircraft type, holding
@@ -89,7 +89,7 @@ def main():
                              n_train=int(counts[icao])))
             print(f"{icao:5s} {gj.mean():7.2f} GJ/km", flush=True)
     res = pd.DataFrame(rows)
-    res.to_csv(DROPBOX_PLOTS / "figS_aircraft_types.csv", index=False)
+    res.to_csv(DROPBOX_PLOTS / "figS1_aircraft_types.csv", index=False)
 
     fig, axes = plt.subplots(1, 2, figsize=(7.2, 3.8))
     ink, mark = "#222222", "#2a6f97"
@@ -112,9 +112,9 @@ def main():
                 weight="bold", ha="right")
     fig.tight_layout()
     for ext in ("png", "pdf", "eps"):
-        fig.savefig(DROPBOX_PLOTS / f"figS_aircraft_types.{ext}", dpi=200,
+        fig.savefig(DROPBOX_PLOTS / f"figS1_aircraft_types.{ext}", dpi=200,
                     bbox_inches="tight")
-    print("wrote figS_aircraft_types")
+    print("wrote figS1_aircraft_types")
 
 
 if __name__ == "__main__":

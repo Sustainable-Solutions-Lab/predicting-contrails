@@ -26,7 +26,7 @@ the window keeps its original forcing. Because the nearest acceptable
 alternative minimizes |dt|, one nearest-lookup per flight answers every
 window: replaced iff nearest |dt| <= W.
 
-Reads from the 2021-wide predictions cache built by figS1_demand_shift.py
+Reads from the 2021-wide predictions cache built by demand_shift.py
 (experiments/outputs/_2021_predictions.parquet). Run that script first
 if the cache is missing.
 """
@@ -472,7 +472,7 @@ def main():
     if not PRED_CACHE.exists():
         raise SystemExit(
             f"Predictions cache {PRED_CACHE.name} not found — run "
-            "figS1_demand_shift.py first to build it."
+            "demand_shift.py first to build it."
         )
 
     print(f"Loading 2021 predictions {PRED_CACHE.name} ...")

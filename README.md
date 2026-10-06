@@ -81,11 +81,11 @@ predicting-contrails/
 ├── figures/                    publication figure scripts
 │   ├── fig1_map.py, fig1c_matrix.py   global map and region matrix (Fig. 1)
 │   ├── fig2_concentration.py          concentration of forcing across flights (Fig. 2)
-│   ├── fig4_customer.py               avoidance surfaces and bars (Fig. 4, SI)
-│   ├── figS1_demand_shift.py          availability of same-route alternatives (SI);
-│   │                                  also builds the 2021 predictions cache
-│   ├── figS3_pycontrails.py           independent-validation figure (SI)
-│   └── figS_aircraft_types.py         aircraft-type counterfactual (SI)
+│   ├── demand_shift.py                builds the 2021 predictions cache used by Fig. 4
+│   │                                  (and a diagnostic of same-route alternatives)
+│   ├── fig4_customer.py               avoidance surfaces (Fig. 4) and bars (Supplementary Fig. 2)
+│   ├── figS1_aircraft_types.py        aircraft-type counterfactual (Supplementary Fig. 1)
+│   └── figS3_pycontrails.py           independent validation (Supplementary Fig. 3)
 ├── webtool/                    feature computation and scoring for arbitrary flights,
 │                               and the asset export used by the web tool
 ├── docs/data_dictionary.md     column names, paper terms, definitions, units
@@ -108,12 +108,12 @@ python hyperparameter_tune.py     # grid search
 python final_model.py             # canonical model, metrics, permutation importance, Fig. 3
 python cross_year.py              # cross-year generalization (~20 min)
 cd ../figures
-python figS1_demand_shift.py      # builds the 2021 predictions cache used by Fig. 4
+python demand_shift.py            # builds the 2021 predictions cache used by Fig. 4
 python fig1_map.py
 python fig1c_matrix.py
 python fig2_concentration.py
 python fig4_customer.py           # requires the corporate logs (not released)
-python figS_aircraft_types.py
+python figS1_aircraft_types.py
 python ../experiments/validation/pycontrails_crossval.py   # slow; caches weather locally
 python figS3_pycontrails.py
 ```
