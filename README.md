@@ -16,8 +16,8 @@ We apply the model to two corporations' 2021 flight logs and to the full 2021
 schedule to estimate how much forcing could be avoided by rebooking onto
 same-route alternatives.
 
-The model is live in a free web tool, [Contrail Check](https://sustainablesolutions.vercel.app/tools/contrails),
-and a [Chrome extension](https://chromewebstore.google.com/detail/contrail-check-for-google/jgoiipmnojcdecidalejcadljdcjacgl)
+The model is live in a free web tool, [Predicting contrails at booking](https://sustainablesolutions.vercel.app/tools/contrails),
+and a Chrome extension, [Contrail check for Google Flights](https://chromewebstore.google.com/detail/contrail-check-for-google/jgoiipmnojcdecidalejcadljdcjacgl),
 that adds predictions to Google Flights results.
 
 ## Terminology
