@@ -88,8 +88,7 @@ predicting-contrails/
 │   └── figS3_pycontrails.py           independent validation (Supplementary Fig. 3)
 ├── webtool/                    feature computation and scoring for arbitrary flights,
 │                               and the asset export used by the web tool
-├── docs/data_dictionary.md     column names, paper terms, definitions, units
-└── manuscript/                 early auto-generated draft (superseded)
+└── docs/data_dictionary.md     column names, paper terms, definitions, units
 ```
 
 Figure scripts write PNG, PDF and EPS files to the path set as

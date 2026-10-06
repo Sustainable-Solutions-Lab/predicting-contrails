@@ -33,3 +33,9 @@ figures/*.log
 # webtool model exports (rebuilt by webtool/export_assets.py; deployed copy lives in the website repo)
 webtool/assets/*.ubj
 webtool/assets/land_union.wkb
+
+# Manuscript drafts and draft builders (private; live in Dropbox only)
+manuscript/
+experiments/validation/make_claude_draft.py
+*.docx
+*.doc
