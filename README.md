@@ -127,4 +127,4 @@ on first run.
 - Xavier Bonnemaizon (LSCE/IPSL, Université Paris-Saclay; UC Irvine)
 - Ken Caldeira (Gates Ventures)
 - Roger Teoh (Imperial College London)
-- Marc Shapiro (Breakthrough Energy / Orca Sciences)
+- Marc Shapiro (Breakthrough Energy; contrails.org)
