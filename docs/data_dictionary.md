@@ -4,7 +4,7 @@ Canonical mapping between the column names used in the code and data
 files, the plain-language names used in the paper, and each quantity's
 definition and units. The manuscript should use only the paper names;
 code and released data keep the column names below (many originate in
-the Breakthrough Energy contrails-team shards, and the trained model
+the contrails.org team's label shards, and the trained model
 bundle validates feature names at predict time, so they are not renamed).
 
 Sources: raw label shards (`adjustedEFs/features_{year}*_gdf.pq`),

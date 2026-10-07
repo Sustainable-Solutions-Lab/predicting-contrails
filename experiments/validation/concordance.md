@@ -1,6 +1,6 @@
 # Literature concordance — does our corpus reproduce independent findings?
 
-Our labels are CoCiP-family simulations (via the Breakthrough pipeline),
+Our labels are CoCiP-family simulations (via the contrails.org pipeline),
 so a first-order validation is whether the aggregate patterns in our
 22.4M-flight 2021 corpus reproduce what independent groups — different
 flight data, different met, different implementations, in some cases
