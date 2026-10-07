@@ -128,3 +128,8 @@ on first run.
 - Ken Caldeira (Gates Ventures)
 - Roger Teoh (Imperial College London)
 - Marc Shapiro (Breakthrough Energy; contrails.org)
+
+## License
+
+Code is released under the [MIT License](LICENSE). The training data deposited on
+Zenodo (https://doi.org/10.5281/zenodo.23194382) are licensed separately, under CC BY 4.0.
