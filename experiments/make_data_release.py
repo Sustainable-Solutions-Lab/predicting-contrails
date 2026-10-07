@@ -2,7 +2,8 @@
 """Package the cleaned per-flight training table for the Zenodo deposit.
 
 Splits experiments/outputs/_pool_cache_all.parquet (built by
-build_cache.py) into one parquet per year, writes a README describing
+build_cache.py) into parquet parts of ROWS_PER_PART flights per year (small
+files upload reliably to Zenodo), writes a README describing
 every column, and records SHA-256 checksums. The table holds engineered
 schedule features and contrail-forcing labels only: no flight numbers,
 tail numbers, callsigns or airport codes. The corporate flight logs are
@@ -20,6 +21,7 @@ import pyarrow.parquet as pq
 from common import OUT
 
 CACHE = OUT / "_pool_cache_all.parquet"
+ROWS_PER_PART = 1_500_000
 
 COLUMNS = {
     "contrail_CO2_km": "Contrail forcing per km: the flight's contrail energy forcing (net of cooling) converted to CO2-equivalent mass with AGWP100 = 8.25e-14 W m-2 yr (kg CO2)-1 (1 kg CO2-e per 1.327 GJ), divided by great-circle distance. Units: kg CO2-e per km. Multiply by 1.327e9 J/kg to recover energy forcing in J per km.",
@@ -61,13 +63,20 @@ def main():
     out = Path(sys.argv[1])
     out.mkdir(parents=True, exist_ok=True)
     table = pq.read_table(CACHE)
-    counts = {}
+    counts, parts = {}, {}
+    for old in out.glob("contrail_forcing_features_*.parquet"):
+        old.unlink()
     for year in (2019, 2021):
         part = table.filter(pc.equal(table["year"], year)).drop(["year"])
-        path = out / f"contrail_forcing_features_{year}.parquet"
-        pq.write_table(part, path, compression="zstd")
         counts[year] = part.num_rows
-        print(f"{path.name}: {part.num_rows:,} rows", flush=True)
+        parts[year] = []
+        n = -(-part.num_rows // ROWS_PER_PART)
+        for i in range(n):
+            path = out / f"contrail_forcing_features_{year}_part{i + 1:02d}.parquet"
+            pq.write_table(part.slice(i * ROWS_PER_PART, ROWS_PER_PART), path,
+                           compression="zstd")
+            parts[year].append(path)
+        print(f"{year}: {part.num_rows:,} rows in {n} parts", flush=True)
 
     lines = [
         "# Per-flight contrail forcing and schedule features, 2019 and 2021",
@@ -76,9 +85,12 @@ def main():
         "Caldeira, K., Teoh, R. & Shapiro, M. Flyers can identify the "
         "most-warming flights when booking (2026).",
         "",
-        f"Two Parquet files, one per year: {counts[2019]:,} flights (2019) "
-        f"and {counts[2021]:,} flights (2021), {sum(counts.values()):,} in "
-        "total. Each row is one commercial flight. Labels are per-flight "
+        f"{counts[2019]:,} flights (2019, {len(parts[2019])} files) and "
+        f"{counts[2021]:,} flights (2021, {len(parts[2021])} files), "
+        f"{sum(counts.values()):,} in total, split into Parquet parts of up to "
+        f"{ROWS_PER_PART:,} flights named contrail_forcing_features_YEAR_partNN"
+        ".parquet; concatenate the parts of a year (in order) to recover it. "
+        "Each row is one commercial flight. Labels are per-flight "
         "contrail energy forcing from the GAIA global aviation emissions "
         "inventory (Teoh et al. 2024, Atmos. Chem. Phys. 24, 6071-6093), "
         "simulated with the Contrail Cirrus Prediction model (CoCiP) on "
@@ -99,8 +111,8 @@ def main():
     lines += [f"- `{k}`: {v}" for k, v in COLUMNS.items()]
     lines += ["", "## Checksums (SHA-256)", ""]
     for year in (2019, 2021):
-        p = out / f"contrail_forcing_features_{year}.parquet"
-        lines.append(f"- `{p.name}`: {sha256(p)}")
+        for p in parts[year]:
+            lines.append(f"- `{p.name}`: {sha256(p)}")
     (out / "README.md").write_text("\n".join(lines) + "\n")
     print("wrote README.md")
 
