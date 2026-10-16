@@ -27,7 +27,7 @@ REPO = Path(__file__).resolve().parents[1]
 RES = REPO / "experiments/validation/crossval_results.parquet"
 OUT = Path(
     "/Users/stevedavis/Library/CloudStorage/Dropbox/"
-    "Papers/Active Prep/Contrails/WS Corp contrails (w Silas)/Plots"
+    "Papers/In Review/Contrails/WS Corp contrails (w Silas)/Plots"
 )
 
 df = pd.read_parquet(RES)

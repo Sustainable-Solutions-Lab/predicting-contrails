@@ -34,7 +34,7 @@ REPO = Path(__file__).resolve().parents[2]
 CACHE = REPO / "experiments/outputs/_2021_predictions.parquet"
 SHARDS = Path(
     "/Users/stevedavis/Library/CloudStorage/Dropbox/"
-    "Papers/Active Prep/Contrails/WS Corp contrails (w Silas)/adjustedEFs"
+    "Papers/In Review/Contrails/WS Corp contrails (w Silas)/adjustedEFs"
 )
 OUT = Path(__file__).resolve().parent / "crossval_results.parquet"
 

@@ -53,7 +53,7 @@ from common import DROPBOX_PLOTS, OUT as EXP_OUT  # noqa: E402
 
 CUST_DIR = Path(
     "/Users/stevedavis/Library/CloudStorage/Dropbox/"
-    "Papers/Active Prep/Contrails/WS Corp contrails (w Silas)/Results"
+    "Papers/In Review/Contrails/WS Corp contrails (w Silas)/Results"
 )
 
 OUT = DROPBOX_PLOTS

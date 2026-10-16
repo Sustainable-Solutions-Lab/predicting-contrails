@@ -14,7 +14,7 @@ import pandas as pd
 
 SHARDS = Path(
     "/Users/stevedavis/Library/CloudStorage/Dropbox/"
-    "Papers/Active Prep/Contrails/WS Corp contrails (w Silas)/adjustedEFs"
+    "Papers/In Review/Contrails/WS Corp contrails (w Silas)/adjustedEFs"
 )
 COLS = ["contrail_CO2_km", "total_flight_distance_km", "night_score_bool_0",
         "night_score_full_0", "Season", "meanlat", "Origin_Region",

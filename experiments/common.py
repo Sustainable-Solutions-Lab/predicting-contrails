@@ -17,13 +17,13 @@ import pandas as pd
 
 DROPBOX_PARQUETS = Path(
     "/Users/stevedavis/Library/CloudStorage/Dropbox/"
-    "Papers/Active Prep/Contrails/WS Corp contrails (w Silas)/adjustedEFs"
+    "Papers/In Review/Contrails/WS Corp contrails (w Silas)/adjustedEFs"
 )
 # All raw generated figures go straight here (Steve's hand-polished
 # versions live in the sibling Figures/ folder; scripts stay in git).
 DROPBOX_PLOTS = Path(
     "/Users/stevedavis/Library/CloudStorage/Dropbox/"
-    "Papers/Active Prep/Contrails/WS Corp contrails (w Silas)/Plots"
+    "Papers/In Review/Contrails/WS Corp contrails (w Silas)/Plots"
 )
 OUT = Path(__file__).parent / "outputs"
 OUT.mkdir(parents=True, exist_ok=True)
