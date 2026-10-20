@@ -59,7 +59,10 @@ def load_gaia2025() -> pd.DataFrame:
             "destination_airport", "first_waypoint_time",
             "total_flight_distance_km", "total_persistent_contrail_length_km",
             "ef_sum"])
-        d = d[d["aircraft_type"].isin(TYPES)]
+        d = d[d["aircraft_type"].isin(TYPES)].copy()
+        # some years store UTC as naive timestamps, others tz-aware
+        d["first_waypoint_time"] = pd.to_datetime(
+            d["first_waypoint_time"], utc=True).dt.tz_localize(None)
         parts.append(d.rename(columns={
             "aircraft_type": "aircraft_type_icao",
             "ef_sum": "total_contrail_energy_forcing"}))
