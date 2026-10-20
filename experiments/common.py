@@ -139,6 +139,24 @@ NEEDED_RAW_COLS = [
     "night_score_bool_2", "night_score_bool_3",
 ]
 
+# GAIA2025 files renamed a few columns.
+#
+# The original files had columns "total_flight_distance_km", "total_contrail_energy_forcing",
+# and "aircraft_type_icao".
+# GAIA2025 files have "total_distance_km", "ef_sum", and "atyp_icao_ch_a"
+#
+# SUMMARY_COL_RENAME = {
+#    "total_flight_distance_km": "total_distance_km",
+#    "total_contrail_energy_forcing": "ef_sum",
+#     "aircraft_type_icao": "atyp_icao_ch_a"
+# }
+#
+# "total_contrail_energy_forcing" in the old files is 0 for no persist contrails
+# "ef_sum" in the new files is NULL for no persistent contrails.
+#
+# The new files are missing fields
+# "bearing","land_score","night_score_full_*","night_score_bool_*"
+# "OriginLon","OriginLat","DestinationLon","DestinationLat"
 FEATURE_OUT_COLS = sorted(set(ALL_ENGINEERED_FEATS + MODEL_FEATS)) + [
     TARGET, "contrail_CO2_km",
 ]
