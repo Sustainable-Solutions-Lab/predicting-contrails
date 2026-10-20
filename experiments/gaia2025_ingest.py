@@ -12,6 +12,7 @@ Column notes (checked against the old corpus on 2021-01-15):
     `atyp_icao_ch_a` does not (blank for ~25% of jets), so it is not used.
   - `ef_sum` is NULL where no persistent contrail forms (old files: 0).
   - flight_ids match the old version exactly.
+  - From 2024-01-06 the scheduled times are renamed (ALIASES).
   - Some year folders also hold a small file for the previous 31 December;
     deduplicate by flight_id when building the corpus.
 
@@ -57,6 +58,9 @@ KEEP = [
     "total_contrail_length_sac_km", "total_persistent_contrail_length_km",
     "ef_sum", "ef_overlap_sum",
 ]
+# Files from 2024-01-06 on use newer names for the scheduled times.
+ALIASES = {"departure_scheduled_time_utc": "scheduled_departure_time_utc",
+           "arrival_scheduled_time_utc": "scheduled_arrival_time_utc"}
 
 
 def gcloud(*args: str, binary: bool = False):
@@ -71,7 +75,11 @@ def fetch(uri: str, dest: Path) -> tuple[str, int, int]:
     for attempt in range(4):
         try:
             raw = gcloud("cat", uri, binary=True)
-            t = pq.read_table(io.BytesIO(raw), columns=KEEP)
+            names = pq.read_schema(io.BytesIO(raw)).names
+            rename = {k: v for k, v in ALIASES.items() if k in names}
+            cols = [next((k for k, v in rename.items() if v == c), c)
+                    for c in KEEP]
+            t = pq.read_table(io.BytesIO(raw), columns=cols).rename_columns(KEEP)
             n_all = t.num_rows
             t = t.filter(pc.equal(t["aircraft_engine_type"], "Jet"))
             tmp = dest.with_suffix(".tmp")
