@@ -10,10 +10,14 @@ mean contrail energy forcing per km, both raw and matched on
 route x month (cells where both engine families fly), since airlines and
 routes differ between engines.
 
-Usage: python experiments/engine_split.py
+With --gaia2025 the labels come from the GAIA 2019–25 corpus (vPM-enabled
+CoCiP; gaia2025_corpus.py), all years pooled.
+
+Usage: python experiments/engine_split.py [--gaia2025]
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -39,12 +43,37 @@ def family(name: str) -> str:
     return "other"
 
 
-def main() -> None:
+def load_old() -> pd.DataFrame:
     parts = []
     for f in sorted(SHARDS.glob("features_*_gdf.pq")):
         d = pd.read_parquet(f, columns=COLS)
         parts.append(d[d["aircraft_type_icao"].isin(TYPES)])
+    return pd.concat(parts, ignore_index=True)
+
+
+def load_gaia2025() -> pd.DataFrame:
+    parts = []
+    for f in sorted((SHARDS.parent / "GAIA2019-25/corpus").glob("20??.parquet")):
+        d = pd.read_parquet(f, columns=[
+            "aircraft_type", "engine_name", "origin_airport",
+            "destination_airport", "first_waypoint_time",
+            "total_flight_distance_km", "total_persistent_contrail_length_km",
+            "ef_sum"])
+        d = d[d["aircraft_type"].isin(TYPES)]
+        parts.append(d.rename(columns={
+            "aircraft_type": "aircraft_type_icao",
+            "ef_sum": "total_contrail_energy_forcing"}))
     df = pd.concat(parts, ignore_index=True)
+    df["total_contrail_energy_forcing"] = (
+        df["total_contrail_energy_forcing"].fillna(0).astype(float))
+    df["total_persistent_contrail_length_km"] = (
+        df["total_persistent_contrail_length_km"].fillna(0))
+    return df
+
+
+def main() -> None:
+    new = "--gaia2025" in sys.argv
+    df = load_gaia2025() if new else load_old()
     df = df[(df["total_flight_distance_km"] > 0)
             & np.isfinite(df["total_contrail_energy_forcing"])]
     df["fam"] = df["engine_name"].map(family)
@@ -87,7 +116,8 @@ def main() -> None:
     out = pd.DataFrame(rows)
     pd.set_option("display.width", 200)
     print(out.round(4).to_string(index=False))
-    out.to_csv(SHARDS.parent / "Plots/engine_split.csv", index=False)
+    name = "engine_split_gaia2025.csv" if new else "engine_split.csv"
+    out.to_csv(SHARDS.parent / "Plots" / name, index=False)
 
 
 if __name__ == "__main__":
