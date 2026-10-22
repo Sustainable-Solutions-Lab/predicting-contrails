@@ -46,9 +46,15 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "experiments"))
-from common import DROPBOX_PLOTS, OUT as EXP_OUT  # noqa: E402
+from common import (  # noqa: E402
+    BASE_YEAR, DROPBOX_PLOTS, REVISION_PLOTS, OUT as EXP_OUT, load_corpus,
+)
 
-OUT = DROPBOX_PLOTS
+# --gaia2025: the revision's base year from the GAIA 2019-25 corpus
+# (vPM-enabled labels), written to Plots/revision, with Asia split into
+# East and Southeast Asia in panel f
+REVISION = "--gaia2025" in sys.argv
+OUT = REVISION_PLOTS if REVISION else DROPBOX_PLOTS
 
 POOL_CACHE = EXP_OUT / "_pool_cache_all.parquet"
 SAMPLE = None               # None = ALL flights, so the cumulative axes show
@@ -153,20 +159,37 @@ def add_metadata(df: pd.DataFrame) -> pd.DataFrame:
         (region == "Other") & (olon >= -15) & (olon <= 45) &
         (olat >= 35) & (olat <= 60), "Europe", region,
     )
-    region = np.where(
-        (region == "Other") & (olon >= 60) & (olon <= 150) &
-        (olat >= -10) & (olat <= 55), "Asia", region,
-    )
-    df["region"] = pd.Categorical(
-        region,
-        categories=["North America", "Europe", "Russia", "Asia", "Other"],
-    )
+    if REVISION:
+        # same boxes as Fig. 1c's "E Asia" and the Southeast Asian part
+        # of its "S and SE Asia"
+        region = np.where(
+            (region == "Other") & (olon >= 100) & (olon <= 150) &
+            (olat >= 23) & (olat < 45), "East Asia", region,
+        )
+        region = np.where(
+            (region == "Other") & (olon >= 95) & (olon <= 145) &
+            (olat >= -10) & (olat < 23), "Southeast Asia", region,
+        )
+        cats = ["North America", "Europe", "Russia", "East Asia",
+                "Southeast Asia", "Other"]
+    else:
+        region = np.where(
+            (region == "Other") & (olon >= 60) & (olon <= 150) &
+            (olat >= -10) & (olat <= 55), "Asia", region,
+        )
+        cats = ["North America", "Europe", "Russia", "Asia", "Other"]
+    df["region"] = pd.Categorical(region, categories=cats)
 
     # Per-flight forcing in GJ (recover from contrail_CO2_km)
     forcing_kg = df["contrail_CO2_km"].astype(np.float64) * df["total_flight_distance_km"].astype(np.float64)
     df["forcing_GJ"] = forcing_kg * KG_TO_J / 1e9
 
     return df
+
+
+# numbers behind every curve, for the text (written to fig2_stats.csv)
+STATS: list[dict] = []
+TOTAL_NET_GJ: list[float] = []
 
 
 def lorenz_curve(forcing_GJ: np.ndarray, distance_km: np.ndarray):
@@ -224,7 +247,7 @@ def annotate_pct(ax, x, y, text, *, ymax, fontsize=8.6, force=None):
 
 
 def panel_curves(ax, df, group_col, group_specs, title, label_overrides=None,
-                 annot_dyfrac=0.28, annot_side=None):
+                 annot_dyfrac=0.28, annot_side=None, legend=False):
     """group_specs is a list of (group_value, color, label, linestyle).
 
     label_overrides: optional {group_value: (xfrac, side)} placing that
@@ -245,6 +268,15 @@ def panel_curves(ax, df, group_col, group_specs, title, label_overrides=None,
         )
         curves.append(dict(cf=cf, cd=cd, peak=peak, cross=cross, pct=pct,
                            color=color, label=label, ls=ls, value=value))
+        f = sub["forcing_GJ"].to_numpy()
+        km = sub["total_flight_distance_km"].to_numpy()
+        STATS.append(dict(
+            panel=title, group=label, n_flights=len(sub),
+            share_of_flights=100 * len(sub) / len(df),
+            net_EJ=f.sum() / 1e9,
+            share_of_net=100 * f.sum() / 1e9 / TOTAL_NET_GJ[0],
+            per_km_GJ=f.sum() / km.sum(),
+            pct_flights_for_100pct_net=pct))
 
     ymax = max(c["cf"].max() for c in curves)
     xmax = max(c["cd"][-1] for c in curves)
@@ -254,6 +286,16 @@ def panel_curves(ax, df, group_col, group_specs, title, label_overrides=None,
 
     for i, c in enumerate(curves):
         cf, cd, peak = c["cf"], c["cd"], c["peak"]
+        if legend:
+            # crowded panels: a legend carries names and percentages
+            pct = f" ({c['pct']:.1f}%)" if c["pct"] is not None else ""
+            ax.plot(cd, cf, color=c["color"], lw=2.2, ls=c["ls"],
+                    label=c["label"] + pct, solid_capstyle="round")
+            if c["cross"] is not None:
+                ax.scatter([cd[c["cross"]]], [cf[c["cross"]]],
+                           facecolor="white", edgecolor=c["color"], s=22,
+                           linewidth=1.1, zorder=10)
+            continue
         ax.plot(cd, cf, color=c["color"], lw=2.2, ls=c["ls"],
                 label=c["label"], solid_capstyle="round")
         # series label above the plateau, ~2/3 of the way to the end;
@@ -306,6 +348,10 @@ def panel_curves(ax, df, group_col, group_specs, title, label_overrides=None,
                 annotate_pct(ax, cd[cross], cf[cross], f"{c['pct']:.1f}%",
                              ymax=ymax, force=annot_side.get(c["value"]))
 
+    if legend:
+        ax.legend(loc="upper right", frameon=False, fontsize=9,
+                  title="% of flights for 100% of net forcing",
+                  title_fontsize=8.6)
     ax.set_title(title, fontsize=12, weight="bold")
 
 
@@ -325,6 +371,13 @@ def panel_a_all_flights(ax, df):
     cross_idx = min(int(np.searchsorted(cum_forc[:n_pos], cum_forc[-1],
                                         side="left")), n_pos - 1)
     cross_pct = 100.0 * (cross_idx + 1) / len(f_gj)
+    STATS.append(dict(
+        panel="All flights", group="All flights", n_flights=len(f_gj),
+        share_of_flights=100.0, net_EJ=f_gj.sum() / 1e9, share_of_net=100.0,
+        per_km_GJ=f_gj.sum() / d_km.sum(),
+        pct_flights_for_100pct_net=cross_pct,
+        share_warming=100 * (f_gj > 0).mean(),
+        share_cooling=100 * (f_gj < 0).mean()))
 
     # Split into warming / neutral / cooling segments by sign of per-flight forcing
     threshold = max(1e-6, np.abs(f_sorted).max() * 1e-5)
@@ -382,7 +435,8 @@ def panel_a_all_flights(ax, df):
 
 def main():
     t0 = time.time()
-    print(f"Loading pool cache {POOL_CACHE.name} ...")
+    print("Loading " + (f"{BASE_YEAR} corpus" if REVISION
+                        else f"pool cache {POOL_CACHE.name}") + " ...")
     cols = [
         "OriginLat", "DestinationLat",
         "OriginLon_sin", "OriginLon_cos",
@@ -392,7 +446,11 @@ def main():
         "total_flight_distance_km", "contrail_CO2_km",
         "year",
     ]
-    df = pd.read_parquet(POOL_CACHE, columns=cols)
+    if REVISION:
+        df = load_corpus([BASE_YEAR], cols[:-1])
+        df["year"] = BASE_YEAR
+    else:
+        df = pd.read_parquet(POOL_CACHE, columns=cols)
     print(f"  {len(df):,} rows, {time.time()-t0:.1f}s")
 
     if SAMPLE and len(df) > SAMPLE:
@@ -403,6 +461,8 @@ def main():
     df = add_metadata(df)
     df = df.dropna(subset=["forcing_GJ", "total_flight_distance_km"])
     print(f"  ready in {time.time()-t0:.0f}s")
+
+    TOTAL_NET_GJ.append(df["forcing_GJ"].sum() / 1e9)
 
     # ── 3 rows × 2 cols ───────────────────────────────────────────────
     fig, axes = plt.subplots(3, 2, figsize=(11, 13))
@@ -437,12 +497,14 @@ def main():
         ("low",  ORANGE, "Low-latitude (no travel >40°)",    "-"),
     ], "By latitude")
 
+    asia = ([("East Asia", TEAL, "East Asia", "-"),
+             ("Southeast Asia", COOL_BLUE, "Southeast Asia", "-")]
+            if REVISION else [("Asia", TEAL, "Asia", "-")])
     panel_curves(axes[2, 1], df, "region", [
         ("North America", RED,         "North America", "-"),
         ("Europe",        ORANGE,      "Europe",        "-"),
         ("Russia",        LIGHT_GREEN, "Russia",        "-"),
-        ("Asia",          TEAL,        "Asia",          "-"),
-    ], "By region of origin")
+    ] + asia, "By region of origin", legend=REVISION)
 
     # Common axis labels and panel letters
     for r, axrow in enumerate(axes):
@@ -465,6 +527,9 @@ def main():
         fig.savefig(OUT / f"fig2_concentration.{ext}", dpi=200,
                     bbox_inches="tight")
     plt.close(fig)
+    stats = pd.DataFrame(STATS)
+    stats.to_csv(OUT / "fig2_stats.csv", index=False)
+    print(stats.round(2).to_string(index=False))
     print(f"Wrote fig2_concentration.{{png,pdf,eps}} in {time.time()-t0:.0f}s")
 
 

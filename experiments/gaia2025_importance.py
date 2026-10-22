@@ -146,11 +146,43 @@ def plot(res: pd.DataFrame) -> None:
                     dpi=200, bbox_inches="tight")
 
 
+def plot_si(res: pd.DataFrame) -> None:
+    """Supplementary Fig. 1 for the revision: the retrained model alone,
+    95% bootstrap intervals, panels a and b. Plots/revision/figS1_aircraft_types."""
+    from common import REVISION_PLOTS
+    REVISION_PLOTS.mkdir(parents=True, exist_ok=True)
+    fig, axes = plt.subplots(1, 2, figsize=(7.6, 3.9))
+    for ax, letter, (title, r) in zip(axes, "ab",
+                                      res.groupby("panel", sort=False)):
+        r = r.sort_values("mean")
+        y = np.arange(len(r))
+        ax.hlines(y, r["lo"], r["hi"], color="#3288BD", lw=1.6)
+        ax.scatter(r["mean"], y, s=26, color="#3288BD", zorder=3,
+                   edgecolor="white", lw=1)
+        ax.set_yticks(y)
+        ax.set_yticklabels(r["name"])
+        ax.set_xlim(0, None)
+        ax.set_xlabel("Expected contrail energy forcing (GJ per km)")
+        ax.set_title(f"({letter}) {title}", fontsize=9, loc="left")
+        ax.grid(axis="x", color="#dddddd", lw=0.6)
+        ax.set_axisbelow(True)
+        ax.spines[["top", "right"]].set_visible(False)
+    fig.tight_layout(w_pad=2.5)
+    for ext in ("png", "pdf", "eps"):
+        fig.savefig(REVISION_PLOTS / f"figS1_aircraft_types.{ext}",
+                    dpi=200, bbox_inches="tight")
+
+
 def main() -> None:
+    if "--plot-si" in sys.argv:
+        plot_si(pd.read_csv(DROPBOX_PLOTS / "figS1_aircraft_types_gaia2025.csv"))
+        return
     b = joblib.load(OUT / "gaia2025_pooled.joblib")
     te, counts = held_out(b["categories"])
     grouped_importance(b["model"], te)
-    plot(type_swap(b["model"], te, counts))
+    res = type_swap(b["model"], te, counts)
+    plot(res)
+    plot_si(res)
 
 
 if __name__ == "__main__":

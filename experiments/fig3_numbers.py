@@ -37,8 +37,10 @@ KS = (0.05, 0.10)
 
 
 def shares(score: np.ndarray, w: np.ndarray) -> dict:
-    """Share of the net total of w in the top and bottom k% by score."""
-    order = np.argsort(score)
+    """Share of the net total of w in the top and bottom k% by score.
+    Stable sort, so tied scores (common for insolation) keep data order,
+    exactly as final_model.build_fig3 draws them."""
+    order = np.argsort(score, kind="stable")
     net = w.sum()
     out = {}
     for k in KS:

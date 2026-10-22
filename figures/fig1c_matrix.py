@@ -38,10 +38,18 @@ from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.patches import Rectangle
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "experiments"))
-from common import DROPBOX_PARQUETS, DROPBOX_PLOTS, OUT as EXP_OUT  # noqa: E402
+from common import (  # noqa: E402
+    AGWP_100, BASE_YEAR, DROPBOX_PARQUETS, DROPBOX_PLOTS, REVISION_PLOTS,
+    S_EARTH, SECONDS_PER_YEAR, OUT as EXP_OUT, load_corpus,
+)
 
-OUT = DROPBOX_PLOTS
-CACHE_PATH = EXP_OUT / "_fig1c_od_cache_v2.parquet"
+# --gaia2025: the revision's base year from the GAIA 2019-25 corpus
+# (vPM-enabled labels), written to Plots/revision
+REVISION = "--gaia2025" in sys.argv
+
+OUT = REVISION_PLOTS if REVISION else DROPBOX_PLOTS
+CACHE_PATH = EXP_OUT / ("_fig1c_od_cache_gaia2025.parquet" if REVISION
+                        else "_fig1c_od_cache_v2.parquet")
 
 # Per-passenger forcing is computed HERE from whole-flight energy
 # forcing / (distance x passengers-by-type), NOT from the shards'
@@ -105,6 +113,24 @@ def assign_region(lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
     return region
 
 
+def load_gaia2025(sample: int | None) -> pd.DataFrame:
+    """Base-year flights from the corpus, per-passenger forcing computed
+    the same way as corrected_jpkm (corpus forcing is ef_sum, NULL -> 0)."""
+    cols = ["OriginLat", "OriginLon", "DestinationLat", "DestinationLon",
+            "aircraft_type_icao", "contrail_CO2_km", "total_flight_distance_km"]
+    df = load_corpus([BASE_YEAR], cols)
+    if sample and len(df) > sample:
+        df = df.sample(sample, random_state=RANDOM_SEED).reset_index(drop=True)
+    km = df["total_flight_distance_km"].astype(np.float64)
+    df["total_contrail_energy_forcing"] = (
+        df["contrail_CO2_km"].astype(np.float64) * km
+        * AGWP_100 * SECONDS_PER_YEAR * S_EARTH)
+    df["Joulesperpasskm"] = corrected_jpkm(df)
+    return df[["OriginLon", "OriginLat", "DestinationLon", "DestinationLat",
+               "aircraft_type_icao", "total_flight_distance_km",
+               "Joulesperpasskm"]]
+
+
 def load_od_table() -> pd.DataFrame:
     if CACHE_PATH.exists():
         df = pd.read_parquet(CACHE_PATH)
@@ -146,7 +172,7 @@ def load_od_table() -> pd.DataFrame:
 
 def main():
     t0 = time.time()
-    df = load_od_table()
+    df = (load_gaia2025(None) if REVISION else load_od_table())
 
     print("Assigning regions ...")
     df["origin_region"] = assign_region(df["OriginLat"].to_numpy(),

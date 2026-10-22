@@ -49,17 +49,43 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "experiments"))
-from common import DROPBOX_PLOTS, OUT as EXP_OUT  # noqa: E402
+from common import (  # noqa: E402
+    CORPUS, DROPBOX_PLOTS, MODEL_FEATS, REVISION_PLOTS, OUT as EXP_OUT,
+)
+
+# --gaia2025: 2021 flights from the GAIA 2019-25 corpus (vPM-enabled
+# labels) scored by the pooled 2019-25 model; each company flight's
+# forcing is its new label. Written to Plots/revision.
+REVISION = "--gaia2025" in sys.argv
 
 CUST_DIR = Path(
     "/Users/stevedavis/Library/CloudStorage/Dropbox/"
     "Papers/In Review/Contrails/WS Corp contrails (w Silas)/Results"
 )
 
-OUT = DROPBOX_PLOTS
+OUT = REVISION_PLOTS if REVISION else DROPBOX_PLOTS
 
-PRED_CACHE = EXP_OUT / "_2021_predictions.parquet"
-MODEL_PATH = EXP_OUT / "final_model.joblib"
+PRED_CACHE = EXP_OUT / ("_2021_predictions_gaia2025.parquet" if REVISION
+                        else "_2021_predictions.parquet")
+MODEL_PATH = EXP_OUT / ("gaia2025_pooled.joblib" if REVISION
+                        else "final_model.joblib")
+
+
+def build_gaia2025_predictions() -> pd.DataFrame:
+    """2021 corpus flights with the pooled model's predictions."""
+    from gaia2025_retrain import load
+    bundle = joblib.load(MODEL_PATH)
+    cols = ["flight_id", "origin_airport", "destination_airport",
+            "first_waypoint_time"]
+    d = load(2021, bundle["categories"])
+    extra = pd.read_parquet(CORPUS / "2021.parquet", columns=cols)
+    d = pd.concat([extra, d], axis=1)
+    d["first_waypoint_time"] = (pd.to_datetime(d["first_waypoint_time"], utc=True)
+                                .dt.tz_localize(None))
+    d["pred_log"] = bundle["model"].predict(d[MODEL_FEATS])
+    out = d[cols + ["pred_log", "contrail_CO2_km", "total_flight_distance_km"]]
+    out.to_parquet(PRED_CACHE)
+    return out
 
 # Threshold for "acceptable alternative": below the global predicted-forcing
 # 90th percentile (= our top-10% rule).
@@ -469,6 +495,8 @@ def main():
     print(f"Loading model {MODEL_PATH.name} ...")
     bundle = joblib.load(MODEL_PATH)
 
+    if REVISION and not PRED_CACHE.exists():
+        build_gaia2025_predictions()
     if not PRED_CACHE.exists():
         raise SystemExit(
             f"Predictions cache {PRED_CACHE.name} not found — run "
@@ -501,6 +529,15 @@ def main():
     for ax, cust, letter in zip(axes, CUSTOMERS, "ab"):
         print(f"\n=== {cust.label} ===")
         cust_log = cust.loader()
+        if REVISION:
+            # the company's flights, with forcing from the new labels
+            cust_log = cust_log[["flight_id"]].merge(
+                db[["flight_id", "contrail_CO2_km",
+                    "total_flight_distance_km"]], on="flight_id")
+            cust_log["co2_eq_tons"] = (cust_log["contrail_CO2_km"]
+                                       * cust_log["total_flight_distance_km"]
+                                       / 1000.0)
+            cust_log = cust_log[["flight_id", "co2_eq_tons"]]
         merged = cust_log.merge(
             db[["flight_id", "origin_airport", "destination_airport",
                 "first_waypoint_time", "pred_log",

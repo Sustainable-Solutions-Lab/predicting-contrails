@@ -33,9 +33,16 @@ from pyproj import Geod
 from scipy.ndimage import gaussian_filter
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "experiments"))
-from common import DROPBOX_PARQUETS, DROPBOX_PLOTS, OUT as EXP_OUT  # noqa: E402
+from common import (  # noqa: E402
+    AGWP_100, BASE_YEAR, DROPBOX_PARQUETS, DROPBOX_PLOTS, REVISION_PLOTS,
+    S_EARTH, SECONDS_PER_YEAR, OUT as EXP_OUT, load_corpus,
+)
 
-OUT = DROPBOX_PLOTS
+# --gaia2025: the revision's base year from the GAIA 2019-25 corpus
+# (vPM-enabled labels), written to Plots/revision
+REVISION = "--gaia2025" in sys.argv
+
+OUT = REVISION_PLOTS if REVISION else DROPBOX_PLOTS
 
 # ── Tunables ──────────────────────────────────────────────────────────────
 SAMPLE_FLIGHTS = 800_000             # target sample size
@@ -51,7 +58,8 @@ COASTLINE_PATH = (
 )
 RANDOM_SEED = 42
 
-CACHE_PATH = EXP_OUT / "_fig1_jpkm_sample_v2.parquet"  # corrected per-pax; gitignored
+CACHE_PATH = EXP_OUT / ("_fig1_jpkm_sample_gaia2025.parquet" if REVISION
+                        else "_fig1_jpkm_sample_v2.parquet")  # gitignored
 
 # Per-passenger forcing is computed HERE from whole-flight energy
 # forcing / (distance x passengers-by-type), NOT from the shards'
@@ -70,6 +78,24 @@ def corrected_jpkm(df):
             / (df["total_flight_distance_km"].astype(_np.float64) * pax))
 
 
+
+
+def load_gaia2025(sample: int | None) -> pd.DataFrame:
+    """Base-year flights from the corpus, per-passenger forcing computed
+    the same way as corrected_jpkm (corpus forcing is ef_sum, NULL -> 0)."""
+    cols = ["OriginLat", "OriginLon", "DestinationLat", "DestinationLon",
+            "aircraft_type_icao", "contrail_CO2_km", "total_flight_distance_km"]
+    df = load_corpus([BASE_YEAR], cols)
+    if sample and len(df) > sample:
+        df = df.sample(sample, random_state=RANDOM_SEED).reset_index(drop=True)
+    km = df["total_flight_distance_km"].astype(np.float64)
+    df["total_contrail_energy_forcing"] = (
+        df["contrail_CO2_km"].astype(np.float64) * km
+        * AGWP_100 * SECONDS_PER_YEAR * S_EARTH)
+    df["Joulesperpasskm"] = corrected_jpkm(df)
+    return df[["OriginLon", "OriginLat", "DestinationLon", "DestinationLat",
+               "aircraft_type_icao", "total_flight_distance_km",
+               "Joulesperpasskm"]]
 
 
 def load_jpkm_sample() -> pd.DataFrame:
@@ -126,7 +152,7 @@ def load_jpkm_sample() -> pd.DataFrame:
 
 def main():
     t0 = time.time()
-    df = load_jpkm_sample()
+    df = (load_gaia2025(SAMPLE_FLIGHTS) if REVISION else load_jpkm_sample())
     print(f"  load done in {time.time()-t0:.0f}s")
 
     # ── Generate waypoints per flight ─────────────────────────────────────

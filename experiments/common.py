@@ -207,3 +207,28 @@ def top_k_metrics(y_true_co2_km, y_pred_log, k=0.05):
     captured = np.maximum(arr[pred_top_idx], 0).sum()
     capture = captured / pos_total if pos_total > 0 else float("nan")
     return recall, capture
+
+
+# ── Revision data: GAIA 2019–25 (vPM-enabled labels) ─────────────────────
+# Corpus built by gaia2025_corpus.py, one parquet per year. Figures made
+# from it go to Plots/revision so the submitted versions stay intact.
+CORPUS = DROPBOX_PARQUETS.parent / "GAIA2019-25/corpus"
+REVISION_PLOTS = DROPBOX_PLOTS / "revision"
+BASE_YEAR = 2025          # descriptive figures and web-tool percentiles
+CORPUS_YEARS = list(range(2019, 2026))
+
+
+def load_corpus(years, cols: list[str]) -> pd.DataFrame:
+    """Read corpus years; OriginLon / DestinationLon are recovered from
+    their sin/cos encodings when asked for (the corpus stores only those)."""
+    lon = [c for c in ("OriginLon", "DestinationLon") if c in cols]
+    read = [c for c in cols if c not in lon]
+    for c in lon:
+        read += [f"{c}_sin", f"{c}_cos"]
+    read = list(dict.fromkeys(read))
+    df = pd.concat([pd.read_parquet(CORPUS / f"{y}.parquet", columns=read)
+                    for y in years], ignore_index=True)
+    for c in lon:
+        df[c] = np.degrees(np.arctan2(df[f"{c}_sin"].astype(np.float64),
+                                      df[f"{c}_cos"].astype(np.float64)))
+    return df

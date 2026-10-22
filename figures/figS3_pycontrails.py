@@ -10,6 +10,7 @@ contrails, with the training labels' own correlation quoted as the
 ceiling. Zero-EF flights (the 78% majority) appear only as panel (a)'s
 denominators, not as a smear of points.
 """
+import sys
 from pathlib import Path
 
 import matplotlib
@@ -30,7 +31,33 @@ OUT = Path(
     "Papers/In Review/Contrails/WS Corp contrails (w Silas)/Plots"
 )
 
-df = pd.read_parquet(RES)
+# --gaia2025: the revision's version. The independent simulation is the
+# vPM-activation run of the same flights (vpm_sensitivity.py, matching the
+# new labels' microphysics); predictions come from the pooled 2019-25
+# model and labels from the GAIA 2019-25 corpus. Written to Plots/revision.
+REVISION = "--gaia2025" in sys.argv
+if REVISION:
+    import joblib
+    sys.path.insert(0, str(REPO / "experiments"))
+    from common import CORPUS, MODEL_FEATS, OUT as EXP_OUT, REVISION_PLOTS
+    OUT = REVISION_PLOTS
+    v = pd.read_parquet(REPO / "experiments/validation/vpm_results.parquet")
+    df = (v[(v["experiment"] == "actual") & (v["config"] == "vpm") & v["ok"]]
+          [["flight_id", "date", "aircraft", "dist_km", "ef_J"]]
+          .rename(columns={"ef_J": "py_ef_J"}))
+    b = joblib.load(EXP_OUT / "gaia2025_pooled.joblib")
+    c = pd.read_parquet(CORPUS / "2021.parquet",
+                        columns=["flight_id", "contrail_CO2_km"] + MODEL_FEATS)
+    c = c[c["flight_id"].isin(df["flight_id"])].copy()
+    c["aircraft_type_icao"] = pd.Categorical(c["aircraft_type_icao"],
+                                             categories=b["categories"])
+    c["pred_log"] = b["model"].predict(c[MODEL_FEATS])
+    df = df.merge(c[["flight_id", "pred_log", "contrail_CO2_km"]]
+                  .rename(columns={"contrail_CO2_km": "label_kg_km"}),
+                  on="flight_id")
+    print(f"{len(df)} validation flights matched to the new labels")
+else:
+    df = pd.read_parquet(RES)
 df["py_ef_per_m"] = df["py_ef_J"] / (df["dist_km"] * 1e3)
 df["formed"] = df["py_ef_J"] != 0
 nz = df[df["formed"]]

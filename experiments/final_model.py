@@ -77,7 +77,8 @@ PRETTY = {
 
 
 def build_fig3(perm: pd.DataFrame, co2_km: np.ndarray, yp_full: np.ndarray,
-               night_score: np.ndarray):
+               night_score: np.ndarray, out_dir: Path = DROPBOX_PLOTS,
+               headline: set[str] | None = None):
     """Three-panel Fig 3: warming prediction, cooling prediction, grouped
     permutation importance.
 
@@ -101,8 +102,8 @@ def build_fig3(perm: pd.DataFrame, co2_km: np.ndarray, yp_full: np.ndarray,
     def cum_pct(order):
         return 100 * np.cumsum(co2_km[order]) / net_total
 
-    # Tie-break the single-feature baseline by distance so its curve is
-    # deterministic through the plateaus of tied night scores
+    # Stable sort so the single-feature baseline is deterministic through
+    # the plateaus of tied night scores (ties keep data order)
     rank_night = np.lexsort((co2_km * 0, night_score))  # ascending night
 
     orders = {
@@ -174,8 +175,8 @@ def build_fig3(perm: pd.DataFrame, co2_km: np.ndarray, yp_full: np.ndarray,
                     xerr=perm["importance_std"],
                     color="#3a7ca5", ecolor="#777777")
     # Highlight the four "headline rule" variables in a different color
-    headline = {"Flight distance", "Origin latitude",
-                "Route-mean insolation", "Aircraft type (ICAO)"}
+    headline = headline or {"Flight distance", "Origin latitude",
+                            "Route-mean insolation", "Aircraft type (ICAO)"}
     for bar, name in zip(bars, short):
         if name in headline:
             bar.set_color("#d1495b")
@@ -188,11 +189,12 @@ def build_fig3(perm: pd.DataFrame, co2_km: np.ndarray, yp_full: np.ndarray,
         ax.text(0.96, 0.04, letter, transform=ax.transAxes, fontsize=14,
                 weight="bold", ha="right", va="bottom")
 
-    plt.savefig(DROPBOX_PLOTS / "fig3.png", dpi=200, bbox_inches="tight")
-    plt.savefig(DROPBOX_PLOTS / "fig3.pdf", bbox_inches="tight")
-    plt.savefig(DROPBOX_PLOTS / "fig3.eps", bbox_inches="tight")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    plt.savefig(out_dir / "fig3.png", dpi=200, bbox_inches="tight")
+    plt.savefig(out_dir / "fig3.pdf", bbox_inches="tight")
+    plt.savefig(out_dir / "fig3.eps", bbox_inches="tight")
     plt.close()
-    print(f"\nWrote fig3.{{png,pdf,eps}} to {DROPBOX_PLOTS}")
+    print(f"\nWrote fig3.{{png,pdf,eps}} to {out_dir}")
 
 
 def replot():
@@ -224,6 +226,29 @@ def replot():
     night = test["night_score_full_0"].to_numpy(dtype=float)
     build_fig3(perm, co2_km, yp_full, night)
 
+    print(f"\nTotal: {time.time()-t0:.0f}s")
+
+
+def replot_gaia2025():
+    """Fig 3 for the revision: the pooled 2019-25 model (gaia2025_retrain.py)
+    on its held-out third of every year, with the grouped importances from
+    gaia2025_importance.py. Numbers: fig3_numbers.py."""
+    from common import REVISION_PLOTS
+    from gaia2025_retrain import YEARS, load, split
+    t0 = time.time()
+    b = joblib.load(OUT / "gaia2025_pooled.joblib")
+    perm = (pd.read_csv(OUT / "gaia2025_permutation_importance_grouped.csv")
+            .rename(columns={"group": "pretty"})
+            .sort_values("importance_mean", ascending=True))
+    test = pd.concat([split(load(y, b["categories"]), RANDOM_SEED + y)[1]
+                      for y in YEARS], ignore_index=True)
+    print(f"  test: {len(test):,} rows in {time.time()-t0:.0f}s")
+    yp_full = b["model"].predict(test[MODEL_FEATS])
+    co2_km = test["contrail_CO2_km"].to_numpy(float)
+    night = test["night_score_full_0"].to_numpy(dtype=float)
+    del test
+    top4 = set(perm.nlargest(4, "importance_mean")["pretty"])
+    build_fig3(perm, co2_km, yp_full, night, REVISION_PLOTS, headline=top4)
     print(f"\nTotal: {time.time()-t0:.0f}s")
 
 
@@ -318,7 +343,9 @@ def main():
 
 
 if __name__ == "__main__":
-    if "--plot-only" in sys.argv:
+    if "--gaia2025" in sys.argv:
+        replot_gaia2025()
+    elif "--plot-only" in sys.argv:
         replot()
     else:
         main()
