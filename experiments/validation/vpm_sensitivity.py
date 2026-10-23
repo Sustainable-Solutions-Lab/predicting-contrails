@@ -11,6 +11,8 @@ microphysics settings:
   base   defaults (as in the paper's validation)
   vpm    vpm_activation=True
   vpmU   vpm_activation=True + Unterstrasser ice-survival fraction
+  gaia   vpmU + the latitude-corrected humidity scaling of the GAIA
+         2019-25 labels (settings per R. Teoh, Oct 2026)
 
 and two experiments:
 
@@ -30,6 +32,7 @@ validation run, so nothing is downloaded.
 
 Usage:
   python experiments/validation/vpm_sensitivity.py [--extra-long 15] [--workers 4]
+      [--configs gaia --actual-only --out vpm_results_gaia.parquet]
 Writes experiments/validation/vpm_results.parquet and prints a summary.
 """
 from __future__ import annotations
@@ -57,6 +60,8 @@ CONFIGS = {
     "base": {},
     "vpm": {"vpm_activation": True},
     "vpmU": {"vpm_activation": True, "unterstrasser_ice_survival_fraction": True},
+    "gaia": {"vpm_activation": True, "unterstrasser_ice_survival_fraction": True,
+             "humidity_scaling": "exp_boost_lat"},
 }
 
 # label -> (ICAO type for performance, engine UID or None for the default)
@@ -112,11 +117,12 @@ def load_trajectories(extra_long: int, seed: int = 11) -> pd.DataFrame:
 
 
 def run_date(args) -> pd.DataFrame:
-    date, day = args
+    date, day, configs, actual_only = args
     import sys
     sys.path.insert(0, str(HERE))
     from pycontrails.models.cocip import Cocip
-    from pycontrails.models.humidity_scaling import HistogramMatching
+    from pycontrails.models.humidity_scaling import (
+        ExponentialBoostLatitudeCorrectionHumidityScaling, HistogramMatching)
     from pycontrails.models.ps_model import PSFlight
 
     import pycontrails_crossval as pcv
@@ -127,10 +133,15 @@ def run_date(args) -> pd.DataFrame:
                     levels=[175, 200, 225, 250, 300, 350])
     rad = pcv._arco(t0, t1, ["top_net_solar_radiation",
                              "top_net_thermal_radiation"], "rad", time_step=1)
-    models = {k: Cocip(met=met, rad=rad, aircraft_performance=PSFlight(),
-                       humidity_scaling=HistogramMatching(),
-                       max_age=np.timedelta64(12, "h"), **kw)
-              for k, kw in CONFIGS.items()}
+    def make(kw):
+        kw = dict(kw)
+        hs = (ExponentialBoostLatitudeCorrectionHumidityScaling()
+              if kw.pop("humidity_scaling", None) == "exp_boost_lat"
+              else HistogramMatching())
+        return Cocip(met=met, rad=rad, aircraft_performance=PSFlight(),
+                     humidity_scaling=hs, max_age=np.timedelta64(12, "h"), **kw)
+
+    models = {k: make(CONFIGS[k]) for k in configs}
     ps_types = set(PSFlight().aircraft_engine_params)
 
     jobs = []
@@ -138,6 +149,8 @@ def run_date(args) -> pd.DataFrame:
         if row.source == "validation" and row.aircraft_type_icao in ps_types:
             jobs.append((row, "actual", row.aircraft_type_icao,
                          row.aircraft_type_icao, None))
+        if actual_only:
+            continue
         d = row.total_flight_distance_km
         sets = ([NARROW] if d < 4000 else []) + ([WIDE] if d > 3000 else [])
         for s in sets:
@@ -184,16 +197,23 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--extra-long", type=int, default=15)
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--configs", nargs="+", default=list(CONFIGS),
+                    choices=list(CONFIGS))
+    ap.add_argument("--actual-only", action="store_true",
+                    help="skip the aircraft-swap experiment")
+    ap.add_argument("--out", default=OUT.name)
     a = ap.parse_args()
     traj = load_trajectories(a.extra_long)
     print(f"{len(traj)} trajectories "
           f"({(traj.source == 'extra_long').sum()} extra long-haul)", flush=True)
-    work = [(d, traj[traj["date"] == d]) for d in DATES]
+    work = [(d, traj[traj["date"] == d], a.configs, a.actual_only)
+            for d in DATES]
     with ProcessPoolExecutor(a.workers) as ex:
         frames = list(ex.map(run_date, work))
     res = pd.concat(frames, ignore_index=True)
-    res.to_parquet(OUT)
-    print(f"Saved {len(res):,} rows -> {OUT.name}")
+    out = HERE / a.out
+    res.to_parquet(out)
+    print(f"Saved {len(res):,} rows -> {out.name}")
 
 
 if __name__ == "__main__":

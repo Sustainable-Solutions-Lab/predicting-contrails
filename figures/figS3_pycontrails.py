@@ -32,8 +32,10 @@ OUT = Path(
 )
 
 # --gaia2025: the revision's version. The independent simulation is the
-# vPM-activation run of the same flights (vpm_sensitivity.py, matching the
-# new labels' microphysics); predictions come from the pooled 2019-25
+# "gaia" run of the same flights (vpm_sensitivity.py: vPM activation,
+# Unterstrasser ice survival and the latitude-corrected humidity scaling,
+# matching the GAIA 2019-25 labels; only the aircraft-performance model
+# and engine assignments differ); predictions come from the pooled 2019-25
 # model and labels from the GAIA 2019-25 corpus. Written to Plots/revision.
 REVISION = "--gaia2025" in sys.argv
 if REVISION:
@@ -41,8 +43,8 @@ if REVISION:
     sys.path.insert(0, str(REPO / "experiments"))
     from common import CORPUS, MODEL_FEATS, OUT as EXP_OUT, REVISION_PLOTS
     OUT = REVISION_PLOTS
-    v = pd.read_parquet(REPO / "experiments/validation/vpm_results.parquet")
-    df = (v[(v["experiment"] == "actual") & (v["config"] == "vpm") & v["ok"]]
+    v = pd.read_parquet(REPO / "experiments/validation/vpm_results_gaia.parquet")
+    df = (v[(v["experiment"] == "actual") & (v["config"] == "gaia") & v["ok"]]
           [["flight_id", "date", "aircraft", "dist_km", "ef_J"]]
           .rename(columns={"ef_J": "py_ef_J"}))
     b = joblib.load(EXP_OUT / "gaia2025_pooled.joblib")

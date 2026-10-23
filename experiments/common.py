@@ -213,7 +213,7 @@ def top_k_metrics(y_true_co2_km, y_pred_log, k=0.05):
 # Corpus built by gaia2025_corpus.py, one parquet per year. Figures made
 # from it go to Plots/revision so the submitted versions stay intact.
 CORPUS = DROPBOX_PARQUETS.parent / "GAIA2019-25/corpus"
-REVISION_PLOTS = DROPBOX_PLOTS / "revision"
+REVISION_PLOTS = DROPBOX_PLOTS / "Revision (GAIA)"
 BASE_YEAR = 2025          # descriptive figures and web-tool percentiles
 CORPUS_YEARS = list(range(2019, 2026))
 
