@@ -71,6 +71,10 @@ def corrected_jpkm(df):
 
 MIN_FLIGHTS = 250        # blank cells with fewer flights
 VMAX_GJ = 0.5            # color scale top (GJ / passenger-km); extend above
+if REVISION:
+    # 2025 cells top out at ~0.20, so the matrix gets its own scale rather
+    # than sharing the map's 0-0.5 bar (which left it pale)
+    VMAX_GJ = 0.2
 
 # Same Spectral-style ramp as the Fig 1b map so the two panels can share
 # a colorbar in the assembled figure.
@@ -219,7 +223,7 @@ def main():
             label = "<0.01" if v < 0.005 else f"{v:.2f}"
             ax.text(c + 0.5, (n - 1 - r) + 0.5, label,
                     ha="center", va="center", fontsize=9.5, weight="bold",
-                    color="#111111")
+                    color="white" if v / VMAX_GJ > 0.9 else "#111111")
 
     # Dashed outline on intra-region cells
     for r, origin in enumerate(ROW_ORDER):
@@ -242,6 +246,8 @@ def main():
     ax.tick_params(length=0)
 
     cbar = fig.colorbar(mesh, ax=ax, extend="max", shrink=0.75, pad=0.03)
+    if REVISION:
+        cbar.set_ticks(np.arange(0, VMAX_GJ + 1e-9, 0.05))
     cbar.set_label("Mean radiative forcing  (GJ / passenger·km)", fontsize=10)
     cbar.ax.tick_params(labelsize=9)
 
