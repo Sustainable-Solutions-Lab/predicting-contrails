@@ -13,6 +13,9 @@ of the polished Figure 1 panel c:
     Sub-Saharan Africa, N America (west), N America (east),
     W Europe, E Europe (incl. Russia)
 
+With --gaia2025, "S and SE Asia" is split into S Asia and SE Asia
+(eleven regions) and the color scale runs 0-0.3.
+
 Cells with fewer than MIN_FLIGHTS flights are left blank. Intra-region
 (diagonal) cells get a dashed outline, as in the polished figure.
 
@@ -72,9 +75,10 @@ def corrected_jpkm(df):
 MIN_FLIGHTS = 250        # blank cells with fewer flights
 VMAX_GJ = 0.5            # color scale top (GJ / passenger-km); extend above
 if REVISION:
-    # 2025 cells top out at ~0.20, so the matrix gets its own scale rather
-    # than sharing the map's 0-0.5 bar (which left it pale)
-    VMAX_GJ = 0.2
+    # 2025 cells mostly sit below 0.2, so the matrix gets its own scale
+    # rather than sharing the map's 0-0.5 bar (which left it pale); only
+    # Oceania -> S Asia (0.37, ~1,700 flights) runs past the top
+    VMAX_GJ = 0.3
 
 # Same Spectral-style ramp as the Fig 1b map so the two panels can share
 # a colorbar in the assembled figure.
@@ -90,6 +94,14 @@ ROW_ORDER = [
     "Sub-Saharan Africa", "N America (west)", "N America (east)",
     "W Europe", "E Europe",
 ]
+if REVISION:
+    # Asia split per R. Teoh: Southeast Asia (same box as Fig. 2f) apart
+    # from South Asia, whose contrail climatology differs
+    ROW_ORDER = [
+        "MENA", "S Asia", "E Asia", "SE Asia", "Oceania", "S America",
+        "Sub-Saharan Africa", "N America (west)", "N America (east)",
+        "W Europe", "E Europe",
+    ]
 COL_ORDER = list(reversed(ROW_ORDER))
 
 
@@ -105,8 +117,18 @@ def assign_region(lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
         ("E Europe",           ((lon >= 15) & (lon < 60) & (lat >= 36) & (lat <= 75))
                              | ((lon >= 60) & (lon <= 180) & (lat >= 45))),
         ("E Asia",             (lon >= 100) & (lon <= 150) & (lat >= 23) & (lat < 45)),
-        ("S and SE Asia",      ((lon >= 55) & (lon < 100) & (lat >= 5) & (lat < 40))
+    ]
+    if REVISION:
+        rules += [
+            ("SE Asia",        (lon >= 95) & (lon <= 145) & (lat >= -10) & (lat < 23)),
+            ("S Asia",         (lon >= 55) & (lon < 100) & (lat >= 5) & (lat < 40)),
+        ]
+    else:
+        rules += [
+            ("S and SE Asia",  ((lon >= 55) & (lon < 100) & (lat >= 5) & (lat < 40))
                              | ((lon >= 95) & (lon <= 145) & (lat >= -10) & (lat < 23))),
+        ]
+    rules += [
         ("N America (west)",   (lon >= -170) & (lon < -100) & (lat >= 12)),
         ("N America (east)",   (lon >= -100) & (lon < -50) & (lat >= 12)),
     ]
@@ -204,7 +226,7 @@ def main():
     cmap.set_bad("white")
     norm = colors.Normalize(vmin=0, vmax=VMAX_GJ, clip=True)
 
-    fig, ax = plt.subplots(figsize=(9.5, 7.5))
+    fig, ax = plt.subplots(figsize=(10.4, 8.2) if REVISION else (9.5, 7.5))
     vals = mean_mat.to_numpy(dtype=float)
     n = len(ROW_ORDER)
 
