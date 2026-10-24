@@ -47,7 +47,8 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "experiments"))
 from common import (  # noqa: E402
-    BASE_YEAR, DROPBOX_PLOTS, REVISION_PLOTS, OUT as EXP_OUT, load_corpus,
+    BASE_YEAR, CORPUS_YEARS, DROPBOX_PLOTS, REVISION_PLOTS, OUT as EXP_OUT,
+    load_corpus,
 )
 
 # --gaia2025: the revision's base year from the GAIA 2019-25 corpus
@@ -191,6 +192,58 @@ def add_metadata(df: pd.DataFrame) -> pd.DataFrame:
 STATS: list[dict] = []
 TOTAL_NET_GJ: list[float] = []
 
+# --gaia2025: every corpus year's "% of flights for 100% of net forcing"
+# per (column, group), for the ranges printed beside the base-year values,
+# and each other year's panel-a curve (drawn as thin grey lines)
+RANGES: dict[tuple, dict[int, float]] = {}
+YEAR_CURVES: dict[int, tuple] = {}
+GROUP_COLS = {
+    "dist_class": ["short", "long"],
+    "dep_quarter": ["afternoon", "evening", "morning", "night"],
+    "season": ["Winter", "Autumn", "Spring", "Summer"],
+    "lat_class": ["high", "low"],
+    "region": ["North America", "Europe", "Russia", "East Asia",
+               "Southeast Asia"],
+}
+
+
+def crossing_pct(f: np.ndarray) -> float | None:
+    """% of flights whose warming alone equals the net total."""
+    f_sorted = np.sort(f)[::-1]
+    cum = np.cumsum(f_sorted)
+    n_pos = int((f_sorted > 0).sum())
+    if cum[-1] <= 0 or n_pos == 0:
+        return None
+    i = min(int(np.searchsorted(cum[:n_pos], cum[-1], side="left")), n_pos - 1)
+    return 100.0 * (i + 1) / len(f)
+
+
+def collect_year(df: pd.DataFrame, year: int) -> None:
+    f = df["forcing_GJ"].to_numpy()
+    RANGES.setdefault(("all", "all"), {})[year] = crossing_pct(f)
+    for col, vals in GROUP_COLS.items():
+        for v in vals:
+            sub = df.loc[df[col] == v, "forcing_GJ"].to_numpy()
+            if len(sub):
+                RANGES.setdefault((col, v), {})[year] = crossing_pct(sub)
+    if year != BASE_YEAR:
+        d = df["total_flight_distance_km"].to_numpy(dtype=np.float64)
+        order = np.argsort(f)[::-1]
+        cf = np.cumsum(f[order]) / FORC_UNIT_SCALE
+        cd = np.cumsum(d[order]) / DIST_UNIT_SCALE
+        keep = np.unique(np.r_[np.linspace(0, len(f) - 1, 4000).astype(int),
+                               np.argmax(cf)])
+        YEAR_CURVES[year] = (cd[keep], cf[keep])
+
+
+def range_text(key) -> str:
+    """'lo–hi' across corpus years, or '' outside --gaia2025. Printed in
+    panel a only; panels b-f stay uncluttered and their ranges go to
+    fig2_year_ranges.csv for the text and SI."""
+    v = [x for x in RANGES.get(key, {}).values() if x is not None]
+    return (f"{min(v):.1f}–{max(v):.1f}"
+            if REVISION and v and key == ("all", "all") else "")
+
 
 def lorenz_curve(forcing_GJ: np.ndarray, distance_km: np.ndarray):
     """Sort flights descending by per-flight forcing and return the
@@ -213,7 +266,9 @@ def lorenz_curve(forcing_GJ: np.ndarray, distance_km: np.ndarray):
     order = np.argsort(forcing_GJ)[::-1]
     f_sorted = forcing_GJ[order]
     cum_forc = np.cumsum(f_sorted) / FORC_UNIT_SCALE
-    cum_dist = np.cumsum(distance_km[order]) / DIST_UNIT_SCALE
+    # float64: the corpus stores distance as float32, whose running sum
+    # stalls over tens of millions of flights (the axis ran ~25% short)
+    cum_dist = np.cumsum(distance_km[order], dtype=np.float64) / DIST_UNIT_SCALE
     peak_idx = int(np.argmax(cum_forc))
     n_pos = int((f_sorted > 0).sum())
     net = cum_forc[-1]
@@ -288,7 +343,9 @@ def panel_curves(ax, df, group_col, group_specs, title, label_overrides=None,
         cf, cd, peak = c["cf"], c["cd"], c["peak"]
         if legend:
             # crowded panels: a legend carries names and percentages
-            pct = f" ({c['pct']:.1f}%)" if c["pct"] is not None else ""
+            rt = range_text((group_col, c["value"]))
+            pct = (f" ({c['pct']:.1f}%" + (f"; {rt}" if rt else "") + ")"
+                   if c["pct"] is not None else "")
             ax.plot(cd, cf, color=c["color"], lw=2.2, ls=c["ls"],
                     label=c["label"] + pct, solid_capstyle="round")
             if c["cross"] is not None:
@@ -334,8 +391,10 @@ def panel_curves(ax, df, group_col, group_specs, title, label_overrides=None,
                 # region that is empty in every panel. (Above-left
                 # spills over the y-axis; below-right collides with the
                 # runner-up's series label.)
-                ax.annotate(f"{c['pct']:.1f}% of flights\n"
-                            "100% of net forcing",
+                rt = range_text((group_col, c["value"]))
+                ax.annotate(f"{c['pct']:.1f}% of flights"
+                            + (f" ({rt}%)" if rt else "")
+                            + "\n100% of net forcing",
                             xy=(cd[cross], cf[cross]),
                             xytext=(cd[cross] + 0.22 * xmax,
                                     cf[cross] - annot_dyfrac * ymax),
@@ -345,12 +404,15 @@ def panel_curves(ax, df, group_col, group_specs, title, label_overrides=None,
                                             color="#999999",
                                             shrinkA=2, shrinkB=3))
             else:
-                annotate_pct(ax, cd[cross], cf[cross], f"{c['pct']:.1f}%",
+                rt = range_text((group_col, c["value"]))
+                annotate_pct(ax, cd[cross], cf[cross],
+                             f"{c['pct']:.1f}%" + (f" ({rt})" if rt else ""),
                              ymax=ymax, force=annot_side.get(c["value"]))
 
     if legend:
         ax.legend(loc="upper right", frameon=False, fontsize=9,
-                  title="% of flights for 100% of net forcing",
+                  title="% of flights for 100% of net forcing"
+                        ,
                   title_fontsize=8.6)
     ax.set_title(title, fontsize=12, weight="bold")
 
@@ -358,7 +420,7 @@ def panel_curves(ax, df, group_col, group_specs, title, label_overrides=None,
 def panel_a_all_flights(ax, df):
     """Single curve segmented by warming/neutral/cooling."""
     f_gj = df["forcing_GJ"].to_numpy()
-    d_km = df["total_flight_distance_km"].to_numpy()
+    d_km = df["total_flight_distance_km"].to_numpy(dtype=np.float64)
     order = np.argsort(f_gj)[::-1]
     f_sorted = f_gj[order]
     d_sorted = d_km[order]
@@ -389,6 +451,18 @@ def panel_a_all_flights(ax, df):
     xmax = cum_dist[-1]
     ax.set_xlim(0, xmax * 1.03)
     ax.set_ylim(0, ymax * 1.18)
+    if YEAR_CURVES:
+        # other corpus years behind the base year, in the same units:
+        # traffic and weather move the totals, the shape holds
+        ymax_all = max(ymax, max(c[1].max() for c in YEAR_CURVES.values()))
+        xmax_all = max(xmax, max(c[0][-1] for c in YEAR_CURVES.values()))
+        ax.set_xlim(0, xmax_all * 1.03)
+        ax.set_ylim(0, ymax_all * 1.18)
+        for yr, (cd_y, cf_y) in sorted(YEAR_CURVES.items()):
+            ax.plot(cd_y, cf_y, color="#b9c0c7", lw=1.0,
+                    ls=(0, (3, 2)) if yr == 2020 else "-", zorder=1)
+            ax.text(cd_y[-1], cf_y[-1], f" {yr}", color="#8a939c",
+                    fontsize=7.5, ha="left", va="center")
 
     ax.plot(cum_dist[:neutral_start], cum_forc[:neutral_start],
             color=RED, lw=2.6, solid_capstyle="round", zorder=4)
@@ -403,16 +477,21 @@ def panel_a_all_flights(ax, df):
     ax.axhline(net, color="#444", ls="--", lw=0.8, zorder=2)
     ax.annotate("100% of net forcing", xy=(0.40 * xmax, net),
                 fontsize=9, color="#222", ha="center", va="top",
-                xytext=(0, -0.4), textcoords="offset fontsize")
+                xytext=(0, -0.4), textcoords="offset fontsize",
+                bbox=dict(boxstyle="square,pad=0.1", fc="white", ec="none")
+                if YEAR_CURVES else None)
 
     # Segment labels above the curve
-    ax.text(cum_dist[peak_idx], ymax * 1.04, "Warming", color=RED,
+    top = ax.get_ylim()[1] / 1.18           # tallest curve incl. other years
+    ax.text(cum_dist[peak_idx], top * 1.04, "Warming", color=RED,
             fontsize=11, weight="bold", ha="center", va="bottom")
     mid = (neutral_start + cooling_start) // 2
-    ax.text(cum_dist[mid], cum_forc[mid] + ymax * 0.04, "Neutral",
+    ax.text(cum_dist[mid], (top if YEAR_CURVES else cum_forc[mid]) + ymax * 0.04,
+            "Neutral",
             color="#6b7785", fontsize=11, weight="bold",
             ha="center", va="bottom")
-    ax.text(xmax, cum_forc[cooling_start] + ymax * 0.04, "Cooling",
+    ax.text(xmax, (top if YEAR_CURVES else cum_forc[cooling_start]) + ymax * 0.04,
+            "Cooling",
             color=COOL_BLUE, fontsize=11, weight="bold",
             ha="right", va="bottom")
 
@@ -421,12 +500,16 @@ def panel_a_all_flights(ax, df):
     ax.scatter([cum_dist[cross_idx]], [cum_forc[cross_idx]],
                facecolor="white", edgecolor=RED, s=24, linewidth=1.2,
                zorder=10)
-    ax.annotate(f"{cross_pct:.1f}% of flights",
+    rt = range_text(("all", "all"))
+    ax.annotate(f"{cross_pct:.1f}% of flights" + (f" ({rt}%)" if rt else ""),
                 xy=(cum_dist[cross_idx], cum_forc[cross_idx]),
                 xytext=(0.6, 0.3), textcoords="offset fontsize",
-                fontsize=9, color="#222", ha="left", va="bottom")
+                fontsize=9, color="#222", ha="left", va="bottom",
+                bbox=dict(boxstyle="square,pad=0.1", fc="white", ec="none")
+                if YEAR_CURVES else None)
 
-    ax.set_title("All flights", fontsize=12, weight="bold")
+    ax.set_title("All flights" + (f", {BASE_YEAR}" if YEAR_CURVES else ""),
+                 fontsize=12, weight="bold")
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -463,6 +546,22 @@ def main():
     print(f"  ready in {time.time()-t0:.0f}s")
 
     TOTAL_NET_GJ.append(df["forcing_GJ"].sum() / 1e9)
+
+    if REVISION:
+        collect_year(df, BASE_YEAR)
+        for yr in CORPUS_YEARS:
+            if yr == BASE_YEAR:
+                continue
+            dy = load_corpus([yr], cols[:-1])
+            dy["year"] = yr
+            dy = add_metadata(dy).dropna(
+                subset=["forcing_GJ", "total_flight_distance_km"])
+            collect_year(dy, yr)
+            print(f"  {yr}: {len(dy):,} flights, {time.time()-t0:.0f}s")
+            del dy
+        pd.DataFrame([dict(column=k[0], group=k[1], year=y, pct=p)
+                      for k, d in RANGES.items() for y, p in d.items()]
+                     ).to_csv(OUT / "fig2_year_ranges.csv", index=False)
 
     # ── 3 rows × 2 cols ───────────────────────────────────────────────
     fig, axes = plt.subplots(3, 2, figsize=(11, 13))
