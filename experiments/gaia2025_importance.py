@@ -75,7 +75,7 @@ def grouped_importance(model, te) -> pd.DataFrame:
                     else pd.Categorical.from_codes(
                         x[c].cat.codes.to_numpy()[idx], x[c].cat.categories)
             drops.append(base - r2_score(s[TARGET], model.predict(x)))
-        rows.append(dict(group=g, n_features=len(cols),
+        rows.append(dict(group=g, n_features=len(cols), base_r2=base,
                          importance_mean=np.mean(drops),
                          importance_std=np.std(drops)))
     out = pd.DataFrame(rows).sort_values("importance_mean")
@@ -173,7 +173,24 @@ def plot_si(res: pd.DataFrame) -> None:
                     dpi=200, bbox_inches="tight")
 
 
+def add_base_r2() -> None:
+    """Add the unshuffled R² of the importance sample to the saved CSV
+    (older runs did not store it), so Fig. 3c can show % decrease."""
+    b = joblib.load(OUT / "gaia2025_pooled.joblib")
+    te, _ = held_out(b["categories"])
+    s = te.sample(N_PERM, random_state=RANDOM_SEED)
+    base = r2_score(s[TARGET], b["model"].predict(s[MODEL_FEATS]))
+    f = OUT / "gaia2025_permutation_importance_grouped.csv"
+    out = pd.read_csv(f)
+    out.insert(2, "base_r2", base)
+    out.to_csv(f, index=False)
+    print(f"base R² = {base:.4f}")
+
+
 def main() -> None:
+    if "--base-r2" in sys.argv:
+        add_base_r2()
+        return
     if "--plot-si" in sys.argv:
         plot_si(pd.read_csv(DROPBOX_PLOTS / "figS1_aircraft_types_gaia2025.csv"))
         return

@@ -171,8 +171,10 @@ def build_fig3(perm: pd.DataFrame, co2_km: np.ndarray, yp_full: np.ndarray,
     # linear flip.
     short = perm["pretty"].str.replace("Night fraction (sun-weighted)",
                                        "Route-mean insolation", regex=False)
-    bars = ax1.barh(short, perm["importance_mean"],
-                    xerr=perm["importance_std"],
+    # With the unshuffled R² stored (revision), show the loss as % of it
+    scale = 100 / perm["base_r2"] if "base_r2" in perm else 1
+    bars = ax1.barh(short, perm["importance_mean"] * scale,
+                    xerr=perm["importance_std"] * scale,
                     color="#3a7ca5", ecolor="#777777")
     # Highlight the four "headline rule" variables in a different color
     headline = headline or {"Flight distance", "Origin latitude",
@@ -180,7 +182,8 @@ def build_fig3(perm: pd.DataFrame, co2_km: np.ndarray, yp_full: np.ndarray,
     for bar, name in zip(bars, short):
         if name in headline:
             bar.set_color("#d1495b")
-    ax1.set_xlabel("Permutation importance (Δ R² when shuffled)")
+    ax1.set_xlabel("Decrease in R² when shuffled (%)" if "base_r2" in perm
+                   else "Permutation importance (Δ R² when shuffled)")
     ax1.set_title("Feature importance — tuned schedule-only")
     ax1.grid(alpha=0.25, axis="x")
 
