@@ -1,0 +1,2 @@
+year,n,share_flights_with_schedule,median_offset_min,p10_offset_min,p90_offset_min,share_within_30min,share_within_60min,share_same_utc_hour,spearman_pred_actual_vs_scheduled_hour,top10_overlap,top10_capture_actual_hour,top10_capture_scheduled_hour
+2022,2000000,0.813981332412438,17.25,3.783333333333333,61.483333333333334,0.7230885,0.893245,0.651689,0.9877563413614733,0.967425,72.76744716729841,72.46122607626413

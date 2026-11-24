@@ -36,8 +36,10 @@ the code to the term used in the paper, with definitions and units.
 Training labels are per-flight contrail energy forcing from the GAIA global
 aviation emissions inventory (Teoh et al. 2024, *Atmos. Chem. Phys.* 24,
 6071–6093), computed with the Contrail Cirrus Prediction model (CoCiP) on
-flown trajectories and ERA5 reanalysis weather. 2020 is excluded as
-COVID-anomalous.
+flown trajectories and ERA5 reanalysis weather. The submitted version used
+2019 and 2021 with soot-only ice nucleation; the revision uses the GAIA
+2019–2025 labels (196 million flights, including 2020) in which contrail ice
+nucleates on volatile particles as well as soot (see "Revision" below).
 
 **Data files are not in this repository.** The cleaned per-flight label and
 feature tables (excluding the corporate flight logs) will be deposited on
@@ -94,7 +96,48 @@ predicting-contrails/
 Figure scripts write PNG, PDF and EPS files to the path set as
 `DROPBOX_PLOTS` in `experiments/common.py`.
 
-## Reproducing the results
+## Revision (GAIA 2019–2025 labels)
+
+The revised paper retrains the same 14-feature model on the GAIA 2019–2025
+per-flight output. Everything is driven from one corpus (one parquet per
+year, built by `experiments/gaia2025_corpus.py` from the ingested daily files)
+and the scripts below; figure scripts take `--gaia2025` and write to
+`Plots/Revision (GAIA)`.
+
+```bash
+cd experiments
+python gaia2025_ingest.py                      # daily GAIA files -> slim jets-only parquets
+python gaia2025_corpus.py                      # schedule features, one parquet per year
+python gaia2025_retrain.py oldmodel pooled ood loyo week week_buf
+#   pooled    random 2:1 split within each year (the model in Fig. 3; saved)
+#   ood       train 2019-23, test 2024 and 2025 (saved; used by booking_eval.py)
+#   loyo      leave one year out; the leave-2021-out model is saved for Fig. 4
+#   week      one third of each year's ISO weeks held out (no shared days)
+#   week_buf  ... with two buffer days on either side of each test week
+python gaia2025_importance.py                  # grouped permutation importance (Fig. 3c)
+python fig3_numbers.py                         # every number quoted from Fig. 3
+python booking_eval.py --setting pooled        # TIM-style climatology for the Fig. 3a overlay
+python booking_eval.py --setting ood           # climatologies and booking-set evaluation on 2025
+python validation/insolation_waypoints.py      # 30 vs 300 waypoints for the insolation feature
+python validation/schedule_vs_actual.py        # scheduled vs operated departure hour
+cd ../figures
+python fig1_map.py --gaia2025; python fig1c_matrix.py --gaia2025
+python fig2_concentration.py --gaia2025
+python ../experiments/final_model.py --gaia2025        # Fig. 3 (with the climatology curve)
+python fig4_customer.py --gaia2025 --loyo2021          # Fig. 4 and Supplementary Fig. 2, with bootstrap
+python figS1_aircraft_types.py --gaia2025
+python figS3_pycontrails.py --gaia2025
+python figS_fig1_variability.py --gaia2025             # Supplementary Fig. 5
+python figS6_booking_sets.py                           # Supplementary Fig. 6
+```
+
+Headline numbers of the revision: the predicted worst 10% of flights carry
+71% of net contrail forcing on the random split, 67% out of time (2024 and
+2025), 62–69% leaving each year out; `experiments/outputs/gaia2025_metrics.csv`
+holds every split. The web tool serves the pooled model
+(`webtool/export_assets_gaia.py`).
+
+## Reproducing the results (submitted version, 2019 and 2021 labels)
 
 Requires Python 3.11 with XGBoost, scikit-learn, pandas, pyarrow, matplotlib
 and SciPy. The independent validation additionally requires pycontrails

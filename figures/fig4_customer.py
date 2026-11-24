@@ -57,6 +57,13 @@ from common import (  # noqa: E402
 # labels) scored by the pooled 2019-25 model; each company flight's
 # forcing is its new label. Written to Plots/revision.
 REVISION = "--gaia2025" in sys.argv
+# --loyo2021: score 2021 with the model trained on the other six years
+# (gaia2025_retrain.py loyo), so no company flight was seen in training.
+# This is the revision's Fig. 4; the pooled-model version gets a suffix.
+LOYO = "--loyo2021" in sys.argv
+assert not LOYO or REVISION, "--loyo2021 needs --gaia2025"
+SUFFIX = "" if (LOYO or not REVISION) else "_pooledmodel"
+N_BOOT = 300          # bootstrap resamples of each company's flights
 
 CUST_DIR = Path(
     "/Users/stevedavis/Library/CloudStorage/Dropbox/"
@@ -65,9 +72,11 @@ CUST_DIR = Path(
 
 OUT = REVISION_PLOTS if REVISION else DROPBOX_PLOTS
 
-PRED_CACHE = EXP_OUT / ("_2021_predictions_gaia2025.parquet" if REVISION
+PRED_CACHE = EXP_OUT / ("_2021_predictions_gaia2025_loyo.parquet" if LOYO
+                        else "_2021_predictions_gaia2025.parquet" if REVISION
                         else "_2021_predictions.parquet")
-MODEL_PATH = EXP_OUT / ("gaia2025_pooled.joblib" if REVISION
+MODEL_PATH = EXP_OUT / ("gaia2025_loyo_2021.joblib" if LOYO
+                        else "gaia2025_pooled.joblib" if REVISION
                         else "final_model.joblib")
 
 
@@ -80,6 +89,7 @@ def build_gaia2025_predictions() -> pd.DataFrame:
     d = load(2021, bundle["categories"])
     extra = pd.read_parquet(CORPUS / "2021.parquet", columns=cols)
     d = pd.concat([extra, d], axis=1)
+    d = d.loc[:, ~d.columns.duplicated()]        # load() now also reads the time
     d["first_waypoint_time"] = (pd.to_datetime(d["first_waypoint_time"], utc=True)
                                 .dt.tz_localize(None))
     d["pred_log"] = bundle["model"].predict(d[MODEL_FEATS])
@@ -231,6 +241,24 @@ MODEL_SHADES = ["#f4b6bd", "#e98f9b", "#d1495b", "#9d3140"]   # ±2 → ±16 h
 ORACLE_SHADES = ["#b9d0e4", "#83a9ca", "#3f6f9e", "#1f4e79"]
 
 
+def bootstrap_grid(merged: pd.DataFrame, db_acc_by_route: dict,
+                   n_boot: int = N_BOOT, seed: int = 0) -> pd.DataFrame:
+    """5th and 95th percentiles of pct_remaining over bootstrap resamples
+    of the company's flights (with replacement), per ranker, threshold
+    and window: the sampling uncertainty of a small flight log."""
+    rng = np.random.default_rng(seed)
+    reps = []
+    for b in range(n_boot):
+        samp = merged.sample(len(merged), replace=True, random_state=int(rng.integers(2**31)))
+        g = window_grid(samp, db_acc_by_route)[["ranker", "threshold_pct", "window_h", "pct_remaining"]]
+        g["boot"] = b
+        reps.append(g)
+    q = (pd.concat(reps).groupby(["ranker", "threshold_pct", "window_h"])["pct_remaining"]
+         .quantile([0.05, 0.5, 0.95]).unstack())
+    q.columns = ["pct_remaining_p05", "pct_remaining_p50", "pct_remaining_p95"]
+    return q.reset_index()
+
+
 def merged_panel(ax, grid: pd.DataFrame, total_tons: float, label: str):
     bar_w = 0.115
     group_centers = {k: 1.15 + i * 1.25 for i, k in enumerate(THRESHOLDS_PCT)}
@@ -260,14 +288,20 @@ def merged_panel(ax, grid: pd.DataFrame, total_tons: float, label: str):
                 ax.bar([x], [repl_pct], width=bar_w, bottom=base_pct,
                        color=shades[wi], alpha=0.45, hatch="//////",
                        edgecolor="white", linewidth=0, zorder=3)
-                ax.text(x, base_pct + max(repl_pct, 0) + 1.2,
+                if "pct_remaining_p05" in r and np.isfinite(r.pct_remaining_p05):
+                    ax.plot([x, x], [r.pct_remaining_p05, r.pct_remaining_p95],
+                            color="#222222", lw=0.8, zorder=7)
+                    ytxt = r.pct_remaining_p95 + 1.2
+                else:
+                    ytxt = base_pct + max(repl_pct, 0) + 1.2
+                ax.text(x, ytxt,
                         f"{r.pct_remaining:.0f}", ha="center", va="bottom",
                         fontsize=6.2, rotation=90, color="#444444")
 
     ax.set_xticks([0] + [group_centers[k] for k in THRESHOLDS_PCT])
     ax.set_xticklabels(["Original"] + [f"worst {k}%\navoided"
                                        for k in THRESHOLDS_PCT])
-    ax.set_ylim(0, 112)
+    ax.set_ylim(0, 125)
     ax.set_ylabel("Contrail-equivalent forcing (% of original)")
     ax.set_title(label, pad=8)
     ax.grid(alpha=0.25, axis="y")
@@ -414,12 +448,14 @@ def contour_figure(surfaces: dict):
     """surfaces: {(cust_label, ranker): R}"""
     from matplotlib.colors import LinearSegmentedColormap
     from scipy.ndimage import gaussian_filter
-    # Reversed ramp: red = little/no reduction, blue = deep reduction —
-    # the net-zero line then sits in the last blues (net cooling beyond).
-    hex_ramp = ["#9e0142", "#d53e4f", "#f46d43", "#fdae61", "#fee08b",
-                "#ffffbf", "#e6f598", "#abdda4", "#66c2a5", "#3288bd"]
+    # One sequential ramp for reductions (pale yellow at 0 through greens
+    # to deep blue beyond net zero); INCREASES in forcing (backfiring
+    # swaps, R < 0) are grey, a different hue, so that more and less
+    # warming are never the same colour (referee 2).
+    hex_ramp = ["#ffffd4", "#e6f598", "#abdda4", "#66c2a5", "#3288bd",
+                "#5e4fa2"]
     cmap = LinearSegmentedColormap.from_list("reduction", hex_ramp, N=256)
-    cmap.set_under("#6e0028")
+    cmap.set_under("#9e9e9e")
 
     # Display-only smoothing: the raw surfaces are step functions of
     # individual flights entering the flagged set / window, which reads
@@ -437,8 +473,8 @@ def contour_figure(surfaces: dict):
     # INCREASE in forcing from backfiring swaps) get the darkest red.
     from matplotlib.colors import ListedColormap
     bin_cmap = ListedColormap(cmap(np.linspace(0, 1, len(levels) - 1)))
-    bin_cmap.set_under("#6e0028")
-    bin_cmap.set_over("#1c5f99")
+    bin_cmap.set_under("#9e9e9e")
+    bin_cmap.set_over("#3b2a7a")
 
     row_labels = list(dict.fromkeys(k[0] for k in surfaces))
     fig, axes = plt.subplots(len(row_labels), 2,
@@ -485,7 +521,7 @@ def contour_figure(surfaces: dict):
     cbar.set_label("Reduction in contrail-equivalent forcing (%)")
 
     for ext in ("png", "pdf", "eps"):
-        fig.savefig(OUT / f"fig4.{ext}", dpi=200, bbox_inches="tight")
+        fig.savefig(OUT / f"fig4{SUFFIX}.{ext}", dpi=200, bbox_inches="tight")
     plt.close(fig)
     print(f"Wrote fig4.{{png,pdf,eps}} (contours)")
 
@@ -552,6 +588,13 @@ def main():
         print(f"  {len(merged):,} flights matched, {total:.0f} tCO2e")
 
         grid = window_grid(merged, db_acc_by_route)
+        if N_BOOT:
+            grid = grid.merge(bootstrap_grid(merged, db_acc_by_route),
+                              on=["ranker", "threshold_pct", "window_h"], how="left")
+            print(f"  bootstrap ({N_BOOT} resamples): worst 10%, ±16 h, model: "
+                  + ", ".join(f"{r.pct_remaining:.0f}% [{r.pct_remaining_p05:.0f}, {r.pct_remaining_p95:.0f}]"
+                              for r in grid[(grid.ranker == "model") & (grid.threshold_pct == 10)
+                                            & (grid.window_h == 16)].itertuples()))
         grid.insert(0, "customer", cust.name)
         grids.append(grid)
         for ranker in ("model", "oracle"):
@@ -563,12 +606,12 @@ def main():
 
     add_legend(fig)
     pd.concat(grids, ignore_index=True).to_csv(
-        OUT / "figS2_avoidance_summary.csv", index=False)
+        OUT / f"figS2_avoidance_summary{SUFFIX}.csv", index=False)
 
     plt.tight_layout(rect=[0, 0, 1, 0.91])
-    fig.savefig(OUT / "figS2_avoidance.png", dpi=200, bbox_inches="tight")
-    fig.savefig(OUT / "figS2_avoidance.pdf", bbox_inches="tight")
-    fig.savefig(OUT / "figS2_avoidance.eps", bbox_inches="tight")
+    fig.savefig(OUT / f"figS2_avoidance{SUFFIX}.png", dpi=200, bbox_inches="tight")
+    fig.savefig(OUT / f"figS2_avoidance{SUFFIX}.pdf", bbox_inches="tight")
+    fig.savefig(OUT / f"figS2_avoidance{SUFFIX}.eps", bbox_inches="tight")
     plt.close(fig)
     print("Global reduction surfaces (all 2021 flights) ...")
     surfaces.update(global_surfaces(db, threshold_log))
@@ -576,6 +619,13 @@ def main():
     row_order = ["All 2021 flights"] + [c.label for c in CUSTOMERS]
     surfaces = {(cl, rk): surfaces[(cl, rk)]
                 for cl in row_order for rk in ("model", "oracle")}
+    # the numbers behind the contours, for the text
+    pd.DataFrame([dict(panel=cl, ranker=rk, threshold_pct=k, window_h=w,
+                       reduction_pct=R[ki, wi])
+                  for (cl, rk), R in surfaces.items()
+                  for ki, k in enumerate(CONTOUR_THRESHOLDS)
+                  for wi, w in enumerate(CONTOUR_WINDOWS)]
+                 ).to_csv(OUT / f"fig4_surfaces{SUFFIX}.csv", index=False)
     contour_figure(surfaces)
     print(f"\nWrote fig4 (contours), figS2_avoidance (bars) + summary CSV "
           f"in {time.time()-t0:.0f}s")

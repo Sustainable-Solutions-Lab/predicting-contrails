@@ -206,6 +206,11 @@ def main():
         "#3288bd", "#66c2a5", "#abdda4", "#e6f598",
         "#ffffbf", "#fee08b", "#fdae61", "#f46d43", "#d53e4f", "#9e0142",
     ]
+    if REVISION:
+        # sequential (monotone lightness): a referee objected to a
+        # diverging palette for a quantity without a central value
+        hex_spectral = ["#ffffd9", "#fee08b", "#fdae61", "#f46d43",
+                        "#d53e4f", "#9e0142"]
     cmap = LinearSegmentedColormap.from_list("rf_spectral_r", hex_spectral, N=256)
     # Opaque white for no-data cells: EPS has no transparency, so alpha=0
     # rendered as BLACK when the .eps was placed in Illustrator.
@@ -243,8 +248,13 @@ def main():
     cbar.ax.tick_params(labelsize=9)
     ax.set_xlim(-180, 180)
     ax.set_ylim(-60, 80)
-    ax.set_xlabel("Longitude (°)")
-    ax.set_ylabel("Latitude (°)")
+    ax.set_xlabel("Longitude")
+    ax.set_ylabel("Latitude")
+    ax.set_xticks([-180, -120, -60, 0, 60, 120, 180])
+    ax.set_yticks([-60, -30, 0, 30, 60])
+    deg = plt.FuncFormatter(lambda v, _: f"{v:.0f}°")
+    ax.xaxis.set_major_formatter(deg)
+    ax.yaxis.set_major_formatter(deg)
 
     fig.savefig(OUT / "fig1_map.png", dpi=200, bbox_inches="tight")
     fig.savefig(OUT / "fig1_map.pdf", bbox_inches="tight")

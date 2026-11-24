@@ -78,7 +78,8 @@ PRETTY = {
 
 def build_fig3(perm: pd.DataFrame, co2_km: np.ndarray, yp_full: np.ndarray,
                night_score: np.ndarray, out_dir: Path = DROPBOX_PLOTS,
-               headline: set[str] | None = None):
+               headline: set[str] | None = None,
+               extra: dict[str, np.ndarray] | None = None):
     """Three-panel Fig 3: warming prediction, cooling prediction, grouped
     permutation importance.
 
@@ -119,7 +120,14 @@ def build_fig3(perm: pd.DataFrame, co2_km: np.ndarray, yp_full: np.ndarray,
         },
     }
     colors = {"Perfect foresight": "#1f4e79", "Model": "#d1495b",
-              "Night-score only": "#8fc08f"}
+              "Night-score only": "#8fc08f", "TIM-style climatology": "#fdae61"}
+    # extra rankers (e.g. the Travel-Impact-Model-style climatology from
+    # booking_eval.py --setting pooled), drawn after the model
+    for name, score in (extra or {}).items():
+        rk = np.argsort(score, kind="stable")
+        orders["warm"][name] = rk[::-1]
+        orders["cool"][name] = rk
+        colors.setdefault(name, "#fdae61")
 
     fig = plt.figure(figsize=(19, 4.5))
     gs = fig.add_gridspec(1, 3, width_ratios=[1.0, 1.0, 0.9], wspace=0.58)
@@ -251,7 +259,15 @@ def replot_gaia2025():
     night = test["night_score_full_0"].to_numpy(dtype=float)
     del test
     top4 = set(perm.nlargest(4, "importance_mean")["pretty"])
-    build_fig3(perm, co2_km, yp_full, night, REVISION_PLOTS, headline=top4)
+    extra = None
+    clim = OUT / "_clim_pred_test.parquet"
+    if clim.exists():
+        c = pd.read_parquet(clim)
+        assert len(c) == len(co2_km), "climatology file does not match the test set"
+        extra = {"TIM-style climatology": c["tim"].to_numpy(float)}
+        print("  overlaying the TIM-style climatology from booking_eval.py")
+    build_fig3(perm, co2_km, yp_full, night, REVISION_PLOTS, headline=top4,
+               extra=extra)
     print(f"\nTotal: {time.time()-t0:.0f}s")
 
 

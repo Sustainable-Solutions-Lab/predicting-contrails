@@ -86,6 +86,10 @@ HEX_SPECTRAL = [
     "#3288bd", "#66c2a5", "#abdda4", "#e6f598",
     "#ffffbf", "#fee08b", "#fdae61", "#f46d43", "#d53e4f", "#9e0142",
 ]
+if REVISION:
+    # sequential ramp (monotone lightness), as in fig1_map.py: a referee
+    # objected to a diverging palette for a quantity without a centre
+    HEX_SPECTRAL = ["#ffffd9", "#fee08b", "#fdae61", "#f46d43", "#d53e4f", "#9e0142"]
 
 # Display order copied from the polished panel: rows top→bottom, columns
 # are the reverse, so intra-region cells run bottom-left → top-right.
